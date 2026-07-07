@@ -1,0 +1,679 @@
+<?php
+/**
+ * Template Name: Página Iniciar Sesión / Registro
+ * Description: Vista para el inicio de sesión y registro de clientes en el frontend con diseño premium mejorado.
+ */
+
+// Procesar cierre de sesión personalizado
+if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+    comida_rapida_logout();
+    wp_safe_redirect(home_url('?view=login'));
+    exit;
+}
+
+// Procesar inicio de sesión
+$login_error = '';
+if (isset($_POST['login_submit'])) {
+    if (!isset($_POST['login_nonce']) || !wp_verify_nonce($_POST['login_nonce'], 'comida_rapida_login_action')) {
+        $login_error = 'Error de seguridad. Por favor, intente de nuevo.';
+    } else {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'comida_rapida_clientes';
+        
+        $login_input = sanitize_text_field($_POST['log']);
+        $password = $_POST['pwd'];
+        
+        $user = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE username = %s OR email = %s",
+            $login_input, $login_input
+        ));
+
+        if (!$user) {
+            // Mensaje genérico para evitar la enumeración de nombres de usuario
+            $login_error = 'El nombre de usuario/correo o la contraseña no son válidos.';
+        } else {
+            // Verificar bloqueo de cuenta
+            $current_time = time();
+            if ($user->lockout_until && strtotime($user->lockout_until) > $current_time) {
+                $remaining = strtotime($user->lockout_until) - $current_time;
+                $minutes = ceil($remaining / 60);
+                $login_error = "Esta cuenta ha sido bloqueada temporalmente debido a múltiples intentos de inicio de sesión fallidos. Inténtalo de nuevo en $minutes minutos.";
+            } else {
+                if (password_verify($password, $user->password)) {
+                    // Restablecer intentos fallidos tras inicio de sesión exitoso
+                    $wpdb->update(
+                        $table_name,
+                        array('failed_attempts' => 0, 'lockout_until' => null),
+                        array('id' => $user->id),
+                        array('%d', '%s'),
+                        array('%d')
+                    );
+
+                    // Iniciar sesión en el sitio web
+                    $_SESSION['comida_rapida_cliente_id'] = $user->id;
+                    $_SESSION['comida_rapida_cliente_name'] = $user->username;
+                    $_SESSION['comida_rapida_cliente_email'] = $user->email;
+                    $_SESSION['comida_rapida_role'] = $user->role;
+                    
+                    if ($user->role === 'administrador') {
+                        wp_safe_redirect(add_query_arg('view', 'admin', home_url('/')));
+                    } else {
+                        wp_safe_redirect(home_url('/'));
+                    }
+                    exit;
+                } else {
+                    // Incrementar intentos fallidos
+                    $failed_attempts = intval($user->failed_attempts) + 1;
+                    $lockout_until = null;
+                    
+                    if ($failed_attempts >= 5) {
+                        // Bloquear por 30 minutos (1800 segundos)
+                        $lockout_until = date('Y-m-d H:i:s', $current_time + 1800);
+                        $login_error = 'Demasiados intentos fallidos. Tu cuenta ha sido bloqueada por 30 minutos.';
+                    } else {
+                        $remaining_attempts = 5 - $failed_attempts;
+                        $login_error = "El nombre de usuario/correo o la contraseña no son válidos. Te quedan $remaining_attempts intentos antes del bloqueo.";
+                    }
+
+                    $wpdb->update(
+                        $table_name,
+                        array('failed_attempts' => $failed_attempts, 'lockout_until' => $lockout_until),
+                        array('id' => $user->id),
+                        array('%d', '%s'),
+                        array('%d')
+                    );
+                }
+            }
+        }
+    }
+}
+
+// Procesar registro
+$register_error = '';
+if (isset($_POST['register_submit'])) {
+    if (!isset($_POST['register_nonce']) || !wp_verify_nonce($_POST['register_nonce'], 'comida_rapida_register_action')) {
+        $register_error = 'Error de seguridad. Por favor, intente de nuevo.';
+    } else {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'comida_rapida_clientes';
+        
+        $username = sanitize_user($_POST['reg_username']);
+        $email = sanitize_email($_POST['reg_email']);
+        $password = $_POST['reg_password'];
+        $password_confirm = $_POST['reg_password_confirm'];
+
+        // Comprobaciones de existencia
+        $user_exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_name WHERE username = %s", $username
+        ));
+        $email_exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_name WHERE email = %s", $email
+        ));
+
+        if (empty($username) || empty($email) || empty($password)) {
+            $register_error = 'Por favor complete todos los campos obligatorios.';
+        } elseif (!is_email($email)) {
+            $register_error = 'El correo electrónico no es válido.';
+        } elseif ($user_exists > 0) {
+            $register_error = 'Este nombre de usuario ya está en uso.';
+        } elseif ($email_exists > 0) {
+            $register_error = 'Este correo electrónico ya está registrado.';
+        } elseif ($password !== $password_confirm) {
+            $register_error = 'Las contraseñas no coinciden.';
+        } elseif (strlen($password) < 8) {
+            $register_error = 'La contraseña debe tener al menos 8 caracteres para cumplir con las políticas PCI DSS.';
+        } elseif (!preg_match('/[A-Z]/', $password)) {
+            $register_error = 'La contraseña debe incluir al menos una letra mayúscula.';
+        } elseif (!preg_match('/[a-z]/', $password)) {
+            $register_error = 'La contraseña debe incluir al menos una letra minúscula.';
+        } elseif (!preg_match('/[0-9]/', $password)) {
+            $register_error = 'La contraseña debe incluir al menos un número.';
+        } elseif (!preg_match('/[^A-Za-z0-9]/', $password)) {
+            $register_error = 'La contraseña debe incluir al menos un carácter especial (ej. !@#$%^&*).';
+        } else {
+            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+            $inserted = $wpdb->insert(
+                $table_name,
+                array(
+                    'username' => $username,
+                    'email' => $email,
+                    'password' => $hashed_password,
+                    'role' => 'cliente'
+                ),
+                array('%s', '%s', '%s', '%s')
+            );
+            
+            if ($inserted === false) {
+                $register_error = 'Error al registrar el usuario en la base de datos.';
+            } else {
+                $client_id = $wpdb->insert_id;
+                
+                // Iniciar sesión automáticamente
+                $_SESSION['comida_rapida_cliente_id'] = $client_id;
+                $_SESSION['comida_rapida_cliente_name'] = $username;
+                $_SESSION['comida_rapida_cliente_email'] = $email;
+                $_SESSION['comida_rapida_role'] = 'cliente';
+                
+                wp_safe_redirect(home_url('/'));
+                exit;
+            }
+        }
+    }
+}
+
+// Determinar pestaña activa
+$active_tab = 'login';
+if (!empty($register_error) || isset($_POST['register_submit'])) {
+    $active_tab = 'register';
+}
+?>
+
+<?php if (comida_rapida_is_logged_in()) : 
+    $current_user = comida_rapida_get_current_user();
+    $is_admin = comida_rapida_is_admin();
+    
+    // Obtener pedidos por correo de WooCommerce
+    $customer_orders = array();
+    if (class_exists('WooCommerce')) {
+        $customer_orders = wc_get_orders(array(
+            'billing_email' => $current_user->user_email,
+            'limit'         => 10,
+            'orderby'       => 'date',
+            'order'         => 'DESC',
+        ));
+    }
+    
+    // Estadísticas
+    $total_spent = 0;
+    $order_count = count($customer_orders);
+    $active_order = null;
+    foreach ($customer_orders as $o) {
+        $status = $o->get_status();
+        if ($status !== 'cancelled' && $status !== 'failed') {
+            $total_spent += floatval($o->get_total());
+        }
+        if (!$active_order && in_array($status, array('pending', 'on-hold', 'processing'))) {
+            $active_order = $o;
+        }
+    }
+    if (!$active_order && !empty($customer_orders)) {
+        $active_order = $customer_orders[0];
+    }
+    
+    // Configurar tracker
+    $progress_percent = 25;
+    $step_class = array('active', '', '', '');
+    $status_desc = 'Tu pedido ha sido recibido y está en cola.';
+    
+    if ($active_order) {
+        $status = $active_order->get_status();
+        if ($status === 'pending' || $status === 'on-hold') {
+            $progress_percent = 25;
+            $step_class = array('active', '', '', '');
+            $status_desc = 'Tu pedido ha sido recibido y estamos esperando confirmar el pago.';
+        } elseif ($status === 'processing') {
+            $progress_percent = 60;
+            $step_class = array('active', 'active', 'active', '');
+            $status_desc = '¡Tu pedido se está preparando en la cocina y pronto saldrá con el repartidor!';
+        } elseif ($status === 'completed') {
+            $progress_percent = 100;
+            $step_class = array('active', 'active', 'active', 'active');
+            $status_desc = 'Tu pedido ha sido entregado. ¡Que lo disfrutes!';
+        } else {
+            $progress_percent = 0;
+            $step_class = array('', '', '', '');
+            $status_desc = 'Este pedido fue cancelado o fallido.';
+        }
+    }
+?>
+<!-- VISTA DE USUARIO AUTENTICADO (PORTAL CLIENTE) -->
+<section class="section-padding order-section" id="inicio-sesion" style="min-height: 85vh; display: flex; align-items: center; background-color: var(--bg-primary);">
+    <div class="container" style="max-width: 1100px; display: grid; grid-template-columns: 320px 1fr; gap: 30px; width: 100%;">
+        
+        <!-- Panel Izquierdo: Datos de Perfil -->
+        <div style="background: var(--bg-secondary); border: var(--border-main); border-radius: 16px; padding: 30px; text-align: center; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; align-items: center; height: fit-content;">
+            <div class="user-avatar-wrapper" style="margin-bottom: 20px; position: relative;">
+                <i class="fa-solid fa-circle-user" style="font-size: 6rem; color: var(--color-amber);"></i>
+                <span style="position: absolute; bottom: 0; right: 0; background: var(--color-green); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; border: 2px solid var(--bg-secondary);" title="Cuenta Activa">
+                    <i class="fa-solid fa-check"></i>
+                </span>
+            </div>
+            <h3 style="font-family: var(--font-sans); font-size: 1.4rem; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
+                <?php echo esc_html($current_user->display_name); ?>
+            </h3>
+            <span style="background: rgba(249, 115, 22, 0.08); color: var(--color-amber); font-size: 0.78rem; font-weight: 700; padding: 4px 12px; border-radius: 50px; text-transform: uppercase; margin-bottom: 20px; border: 1px solid rgba(249, 115, 22, 0.2);">
+                <?php echo $is_admin ? 'Administrador' : 'Cliente VIP'; ?>
+            </span>
+            
+            <div style="width: 100%; border-top: var(--border-main); padding-top: 20px; margin-bottom: 25px; text-align: left; font-size: 0.88rem; color: var(--text-secondary);">
+                <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-envelope" style="color: var(--text-muted); width: 16px;"></i>
+                    <span style="word-break: break-all;"><?php echo esc_html($current_user->user_email); ?></span>
+                </div>
+                <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-calendar-alt" style="color: var(--text-muted); width: 16px;"></i>
+                    <span>Miembro desde 2026</span>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 100%; margin-bottom: 30px;">
+                <div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: var(--border-main);">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); display: block; text-transform: uppercase; font-weight: 600;">Pedidos</span>
+                    <strong style="font-size: 1.25rem; color: var(--text-primary);"><?php echo $order_count; ?></strong>
+                </div>
+                <div style="background: var(--bg-primary); padding: 12px; border-radius: 8px; border: var(--border-main);">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); display: block; text-transform: uppercase; font-weight: 600;">Gastado</span>
+                    <strong style="font-size: 1.1rem; color: var(--color-green);">$<?php echo number_format($total_spent, 2); ?></strong>
+                </div>
+            </div>
+
+            <!-- Acciones -->
+            <div style="display: flex; flex-direction: column; gap: 12px; width: 100%;">
+                <?php if ($is_admin) : ?>
+                    <a href="<?php echo esc_url(add_query_arg('view', 'admin', home_url('/'))); ?>" class="btn btn-primary" style="border-radius: 50px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem;">
+                        Panel de Administración <i class="fa-solid fa-screwdriver-wrench"></i>
+                    </a>
+                <?php else : ?>
+                    <a href="<?php echo esc_url(add_query_arg('view', 'menu', home_url('/'))); ?>" class="btn btn-primary" style="border-radius: 50px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem;">
+                        Ver el Menú <i class="fa-solid fa-utensils"></i>
+                    </a>
+                <?php endif; ?>
+                <a href="<?php echo esc_url(add_query_arg(array('view' => 'login', 'action' => 'logout'), home_url('/'))); ?>" class="btn btn-secondary" style="border-radius: 50px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem;">
+                    Cerrar Sesión <i class="fa-solid fa-right-from-bracket"></i>
+                </a>
+            </div>
+        </div>
+
+        <!-- Panel Derecho: Seguimiento e Historial -->
+        <div style="display: flex; flex-direction: column; gap: 30px;">
+            
+            <!-- Rastreo de pedido -->
+            <div style="background: var(--bg-secondary); border: var(--border-main); border-radius: 16px; padding: 30px; box-shadow: var(--shadow-lg);">
+                <h3 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-truck-ramp-box" style="color: var(--color-amber);"></i> Estado de tu Pedido
+                </h3>
+                
+                <?php if ($active_order) : ?>
+                    <div style="background: var(--bg-primary); border: var(--border-main); border-radius: 12px; padding: 20px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                        <div>
+                            <span style="font-size: 0.8rem; color: var(--text-muted);">Pedido en seguimiento</span>
+                            <h4 style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin: 2px 0 0 0;">Pedido #<?php echo $active_order->get_id(); ?></h4>
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="font-size: 0.8rem; color: var(--text-muted);">Total</span>
+                            <div style="font-size: 1.1rem; font-weight: 700; color: var(--color-amber);">$<?php echo number_format($active_order->get_total(), 2); ?></div>
+                        </div>
+                    </div>
+
+                    <!-- Barra de progreso -->
+                    <div class="tracker-wrapper" style="position: relative; margin: 40px 10px 20px 10px;">
+                        <div style="position: absolute; top: 20px; left: 0; width: 100%; height: 6px; background: rgba(15, 23, 42, 0.08); z-index: 1; border-radius: 3px;"></div>
+                        <div style="position: absolute; top: 20px; left: 0; width: <?php echo $progress_percent; ?>%; height: 6px; background: linear-gradient(90deg, var(--color-amber), var(--color-green)); z-index: 2; border-radius: 3px; transition: width 0.8s ease;"></div>
+                        
+                        <div style="position: relative; z-index: 3; display: flex; justify-content: space-between; text-align: center;">
+                            <div style="width: 80px;">
+                                <div style="width: 44px; height: 44px; border-radius: 50%; background: <?php echo $step_class[0] ? 'var(--color-amber)' : 'var(--bg-secondary)'; ?>; color: <?php echo $step_class[0] ? 'white' : 'var(--text-muted)'; ?>; border: 3px solid <?php echo $step_class[0] ? 'var(--color-amber)' : 'var(--border-main)'; ?>; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px auto; box-shadow: var(--shadow-sm);">
+                                    <i class="fa-solid fa-receipt"></i>
+                                </div>
+                                <span style="font-size: 0.78rem; font-weight: 700; color: <?php echo $step_class[0] ? 'var(--text-primary)' : 'var(--text-muted)'; ?>;">Recibido</span>
+                            </div>
+                            
+                            <div style="width: 80px;">
+                                <div style="width: 44px; height: 44px; border-radius: 50%; background: <?php echo $step_class[1] ? 'var(--color-amber)' : 'var(--bg-secondary)'; ?>; color: <?php echo $step_class[1] ? 'white' : 'var(--text-muted)'; ?>; border: 3px solid <?php echo $step_class[1] ? 'var(--color-amber)' : 'var(--border-main)'; ?>; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px auto; box-shadow: var(--shadow-sm);">
+                                    <i class="fa-solid fa-fire-burner"></i>
+                                </div>
+                                <span style="font-size: 0.78rem; font-weight: 700; color: <?php echo $step_class[1] ? 'var(--text-primary)' : 'var(--text-muted)'; ?>;">Preparando</span>
+                            </div>
+
+                            <div style="width: 80px;">
+                                <div style="width: 44px; height: 44px; border-radius: 50%; background: <?php echo $step_class[2] ? 'var(--color-amber)' : 'var(--bg-secondary)'; ?>; color: <?php echo $step_class[2] ? 'white' : 'var(--text-muted)'; ?>; border: 3px solid <?php echo $step_class[2] ? 'var(--color-amber)' : 'var(--border-main)'; ?>; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px auto; box-shadow: var(--shadow-sm);">
+                                    <i class="fa-solid fa-motorcycle"></i>
+                                </div>
+                                <span style="font-size: 0.78rem; font-weight: 700; color: <?php echo $step_class[2] ? 'var(--text-primary)' : 'var(--text-muted)'; ?>;">En Camino</span>
+                            </div>
+
+                            <div style="width: 80px;">
+                                <div style="width: 44px; height: 44px; border-radius: 50%; background: <?php echo $step_class[3] ? 'var(--color-green)' : 'var(--bg-secondary)'; ?>; color: <?php echo $step_class[3] ? 'white' : 'var(--text-muted)'; ?>; border: 3px solid <?php echo $step_class[3] ? 'var(--color-green)' : 'var(--border-main)'; ?>; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px auto; box-shadow: var(--shadow-sm);">
+                                    <i class="fa-solid fa-box-open"></i>
+                                </div>
+                                <span style="font-size: 0.78rem; font-weight: 700; color: <?php echo $step_class[3] ? 'var(--text-primary)' : 'var(--text-muted)'; ?>;">Entregado</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="text-align: center; margin-top: 25px; padding: 12px; background: rgba(249, 115, 22, 0.05); border-radius: 8px; border: 1px dashed rgba(249, 115, 22, 0.2); font-size: 0.88rem; color: var(--text-secondary);">
+                        <i class="fa-solid fa-circle-info" style="color: var(--color-amber); margin-right: 4px;"></i> <?php echo esc_html($status_desc); ?>
+                    </div>
+                <?php else : ?>
+                    <div style="text-align: center; padding: 30px 20px; color: var(--text-muted);">
+                        <i class="fa-solid fa-clock" style="font-size: 2.5rem; color: var(--text-muted); margin-bottom: 12px;"></i>
+                        <p style="margin: 0; font-size: 0.95rem;">No tienes pedidos activos en preparación en este momento.</p>
+                        <a href="<?php echo esc_url(add_query_arg('view', 'menu', home_url('/'))); ?>" class="btn btn-primary" style="margin-top: 15px; border-radius: 50px; padding: 8px 24px; font-size: 0.88rem;">¡Pedir algo delicioso!</a>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Historial de Compras -->
+            <div style="background: var(--bg-secondary); border: var(--border-main); border-radius: 16px; padding: 30px; box-shadow: var(--shadow-lg);">
+                <h3 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-clock-rotate-left" style="color: var(--color-amber);"></i> Historial de Compras
+                </h3>
+
+                <?php if (!empty($customer_orders)) : ?>
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-main); color: var(--text-muted); font-weight: 700;">
+                                    <th style="padding: 12px 8px;">Pedido</th>
+                                    <th style="padding: 12px 8px;">Fecha</th>
+                                    <th style="padding: 12px 8px;">Detalle</th>
+                                    <th style="padding: 12px 8px;">Total</th>
+                                    <th style="padding: 12px 8px; text-align: right;">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($customer_orders as $order) : 
+                                    $status = $order->get_status();
+                                    $status_label = 'Desconocido';
+                                    $status_color = 'var(--text-muted)';
+                                    $status_bg = 'rgba(15, 23, 42, 0.05)';
+                                    
+                                    if ($status === 'completed') {
+                                        $status_label = 'Entregado';
+                                        $status_color = 'var(--color-green)';
+                                        $status_bg = 'rgba(16, 185, 129, 0.08)';
+                                    } elseif ($status === 'processing') {
+                                        $status_label = 'Preparando';
+                                        $status_color = 'var(--color-amber)';
+                                        $status_bg = 'rgba(249, 115, 22, 0.08)';
+                                    } elseif ($status === 'pending' || $status === 'on-hold') {
+                                        $status_label = 'Pendiente';
+                                        $status_color = '#3b82f6';
+                                        $status_bg = 'rgba(59, 130, 246, 0.08)';
+                                    } elseif ($status === 'cancelled' || $status === 'failed') {
+                                        $status_label = 'Cancelado';
+                                        $status_color = '#ef4444';
+                                        $status_bg = 'rgba(239, 68, 68, 0.08)';
+                                    }
+                                    
+                                    // Obtener items
+                                    $items_summary = array();
+                                    foreach ($order->get_items() as $item) {
+                                        $items_summary[] = $item->get_name() . ' (x' . $item->get_quantity() . ')';
+                                    }
+                                    $items_str = implode(', ', $items_summary);
+                                    if (strlen($items_str) > 45) {
+                                        $items_str = mb_substr($items_str, 0, 42) . '...';
+                                    }
+                                ?>
+                                    <tr style="border-bottom: 1px solid var(--border-main);">
+                                        <td style="padding: 15px 8px; font-weight: 700; color: var(--text-primary);">#<?php echo $order->get_id(); ?></td>
+                                        <td style="padding: 15px 8px; color: var(--text-secondary);"><?php echo esc_html(wc_format_datetime($order->get_date_created(), 'd/m/Y')); ?></td>
+                                        <td style="padding: 15px 8px; color: var(--text-muted); font-size: 0.82rem;" title="<?php echo esc_attr(implode(', ', $items_summary)); ?>"><?php echo esc_html($items_str); ?></td>
+                                        <td style="padding: 15px 8px; font-weight: 700; color: var(--text-primary);">$<?php echo number_format($order->get_total(), 2); ?></td>
+                                        <td style="padding: 15px 8px; text-align: right;">
+                                            <span style="color: <?php echo $status_color; ?>; background: <?php echo $status_bg; ?>; padding: 4px 10px; border-radius: 50px; font-size: 0.78rem; font-weight: 700; display: inline-block;">
+                                                <?php echo $status_label; ?>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php else : ?>
+                    <p style="text-align: center; color: var(--text-muted); margin: 0; padding: 20px 0;">No has realizado ninguna compra todavía.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</section>
+
+<?php else : ?>
+
+<!-- NORMAL LOGIN/REGISTER VISTA (NO LOGUEADO) -->
+<section class="section-padding order-section" id="inicio-sesion" style="min-height: 85vh; display: flex; align-items: center; background-color: var(--bg-primary);">
+    <div class="container" style="max-width: 900px; display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: var(--border-main); border-radius: 16px; overflow: hidden; background: var(--bg-secondary); box-shadow: var(--shadow-lg);">
+        
+        <!-- Columna Izquierda: Decoración visual Premium -->
+        <div class="login-banner" style="background: var(--text-primary); color: white; padding: 40px; display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden;">
+            <!-- Círculos decorativos de fondo -->
+            <div style="position: absolute; top: -50px; right: -50px; width: 150px; height: 150px; border-radius: 50%; background: rgba(249, 115, 22, 0.15); filter: blur(20px);"></div>
+            <div style="position: absolute; bottom: -80px; left: -80px; width: 250px; height: 250px; border-radius: 50%; background: rgba(249, 115, 22, 0.1); filter: blur(40px);"></div>
+            
+            <!-- Contenido del Mensaje -->
+            <div style="margin: 60px 0; position: relative; z-index: 2;">
+                <h2 style="font-family: var(--font-serif); font-size: 2.2rem; line-height: 1.2; margin-bottom: 20px; font-weight: 600;">
+                    ¡Tus antojos favoritos a un clic de distancia!
+                </h2>
+                <p style="color: var(--text-muted); font-size: 1rem; line-height: 1.6;">
+                    Inicia sesión para realizar pedidos de forma rápida, acceder a combos exclusivos y guardar tu historial.
+                </p>
+            </div>
+
+            <!-- Footer Académico del Banner -->
+            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 20px; font-size: 0.8rem; color: var(--text-muted);">
+                <i class="fa-solid fa-graduation-cap"></i> Proyecto Académico Simulador de Comercio Electrónico.
+            </div>
+        </div>
+
+        <!-- Columna Derecha: Formulario interactivo -->
+        <div class="login-form-side" style="padding: 40px; display: flex; flex-direction: column; justify-content: center; background: var(--bg-secondary);">
+            
+                
+                <!-- Selector de Pestañas (Tabs) Estilo Premium (Bordes finos, contrastes fuertes) -->
+                <div class="login-tabs" style="display: flex; border: var(--border-main); border-radius: 8px; overflow: hidden; margin-bottom: 30px; background: var(--bg-primary);">
+                    <button type="button" class="login-tab-btn <?php echo $active_tab === 'login' ? 'active' : ''; ?>" id="tab-login-btn" style="flex: 1; padding: 12px; text-align: center; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: var(--transition-fast); border: none;">
+                        Iniciar Sesión
+                    </button>
+                    <button type="button" class="login-tab-btn <?php echo $active_tab === 'register' ? 'active' : ''; ?>" id="tab-register-btn" style="flex: 1; padding: 12px; text-align: center; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: var(--transition-fast); border-left: var(--border-main); border-top: none; border-bottom: none; border-right: none;">
+                        Registrarse
+                    </button>
+                </div>
+
+                <!-- CONTENEDOR FORMULARIO DE INICIO DE SESIÓN -->
+                <div class="login-form-container" id="login-form-container" style="display: <?php echo $active_tab === 'login' ? 'block' : 'none'; ?>;">
+                    <h3 style="font-size: 1.35rem; font-weight: 700; color: var(--text-primary); margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-shield-halved" style="color: var(--color-amber);"></i> Ingresa a tu cuenta
+                    </h3>
+
+                    <?php if (isset($_GET['notice']) && $_GET['notice'] === 'compra_requiere_login') : ?>
+                        <div class="form-status-msg error" style="margin-bottom: 20px; display: block; border-color: var(--color-amber); background: rgba(249, 115, 22, 0.05); color: var(--color-amber);">
+                            <i class="fa-solid fa-circle-exclamation"></i> Por favor, inicia sesión o regístrate para proceder con tu pedido.
+                        </div>
+                    <?php elseif (isset($_GET['notice']) && $_GET['notice'] === 'session_timeout') : ?>
+                        <div class="form-status-msg error" style="margin-bottom: 20px; display: block; border-color: var(--color-amber); background: rgba(249, 115, 22, 0.05); color: var(--color-amber);">
+                            <i class="fa-solid fa-circle-exclamation"></i> Tu sesión ha expirado por inactividad. Por favor, ingresa de nuevo.
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($login_error)) : ?>
+                        <div class="form-status-msg error" style="margin-bottom: 20px; display: block;">
+                            <i class="fa-solid fa-circle-xmark"></i> <?php echo esc_html($login_error); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <form action="" method="post">
+                        <?php wp_nonce_field('comida_rapida_login_action', 'login_nonce'); ?>
+
+                        <div class="form-group">
+                            <label for="user_login" class="form-label">Usuario o Correo Electrónico *</label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-user"></i>
+                                </span>
+                                <input type="text" id="user_login" name="log" class="form-input" placeholder="Ej. juanperez" required style="padding-left: 45px;" value="<?php echo isset($_POST['log']) ? esc_attr($_POST['log']) : ''; ?>">
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="user_pass" class="form-label">Contraseña *</label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-key"></i>
+                                </span>
+                                <input type="password" id="user_pass" name="pwd" class="form-input" placeholder="••••••••" required style="padding-left: 45px; padding-right: 45px;">
+                                <span class="toggle-pwd-btn" data-target="user_pass" style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted); cursor: pointer;" title="Mostrar contraseña">
+                                    <i class="fa-solid fa-eye-slash"></i>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; font-size: 0.88rem;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary);">
+                                <input type="checkbox" name="rememberme" value="forever" style="width: 16px; height: 16px; accent-color: var(--color-amber);"> Recordarme
+                            </label>
+                        </div>
+
+                        <button type="submit" name="login_submit" class="btn btn-primary form-submit-btn" style="border-radius: 50px;">
+                            Entrar <i class="fa-solid fa-right-to-bracket"></i>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- CONTENEDOR FORMULARIO DE REGISTRO -->
+                <div class="register-form-container" id="register-form-container" style="display: <?php echo $active_tab === 'register' ? 'block' : 'none'; ?>;">
+                    <h3 style="font-size: 1.35rem; font-weight: 700; color: var(--text-primary); margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-user-plus" style="color: var(--color-amber);"></i> Regístrate hoy
+                    </h3>
+
+                    <?php if (!empty($register_error)) : ?>
+                        <div class="form-status-msg error" style="margin-bottom: 20px; display: block;">
+                            <i class="fa-solid fa-circle-xmark"></i> <?php echo esc_html($register_error); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <form action="" method="post">
+                        <?php wp_nonce_field('comida_rapida_register_action', 'register_nonce'); ?>
+
+                        <div class="form-group">
+                            <label for="reg_username" class="form-label">Nombre de Usuario *</label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-user"></i>
+                                </span>
+                                <input type="text" id="reg_username" name="reg_username" class="form-input" placeholder="Ej. juanp123" required style="padding-left: 45px;" value="<?php echo isset($_POST['reg_username']) ? esc_attr($_POST['reg_username']) : ''; ?>">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reg_email" class="form-label">Correo Electrónico *</label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-envelope"></i>
+                                </span>
+                                <input type="email" id="reg_email" name="reg_email" class="form-input" placeholder="Ej. juan@correo.com" required style="padding-left: 45px;" value="<?php echo isset($_POST['reg_email']) ? esc_attr($_POST['reg_email']) : ''; ?>">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="reg_password" class="form-label">Contraseña *</label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-key"></i>
+                                </span>
+                                <input type="password" id="reg_password" name="reg_password" class="form-input" placeholder="Mínimo 6 caracteres" required style="padding-left: 45px; padding-right: 45px;">
+                                <span class="toggle-pwd-btn" data-target="reg_password" style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted); cursor: pointer;" title="Mostrar contraseña">
+                                    <i class="fa-solid fa-eye-slash"></i>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 24px;">
+                            <label for="reg_password_confirm" class="form-label">Confirmar Contraseña *</label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-shield-check"></i>
+                                </span>
+                                <input type="password" id="reg_password_confirm" name="reg_password_confirm" class="form-input" placeholder="Repite tu contraseña" required style="padding-left: 45px; padding-right: 45px;">
+                                <span class="toggle-pwd-btn" data-target="reg_password_confirm" style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted); cursor: pointer;" title="Mostrar contraseña">
+                                    <i class="fa-solid fa-eye-slash"></i>
+                                </span>
+                            </div>
+                        </div>
+
+                        <button type="submit" name="register_submit" class="btn btn-primary form-submit-btn" style="border-radius: 50px;">
+                            Registrarme <i class="fa-solid fa-user-plus"></i>
+                        </button>
+                    </form>
+                </div>
+
+            <?php endif; ?>
+        </div>
+    </div>
+</section>
+
+<!-- ESTILOS INTERNOS PARA TABS -->
+<style>
+.login-tab-btn {
+    background: transparent;
+    color: var(--text-secondary);
+}
+.login-tab-btn:hover {
+    color: var(--text-primary);
+    background: rgba(15, 23, 42, 0.05);
+}
+.login-tab-btn.active {
+    background: var(--text-primary);
+    color: white;
+}
+
+@media (max-width: 768px) {
+    #inicio-sesion .container {
+        grid-template-columns: 1fr !important;
+    }
+    .login-banner {
+        display: none !important; /* Oculta banner en móvil para mantener la legibilidad del form */
+    }
+}
+</style>
+
+<!-- SCRIPT INTERNO PARA TABS Y PASSWORD TOGGLE -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tabLoginBtn = document.getElementById('tab-login-btn');
+    const tabRegisterBtn = document.getElementById('tab-register-btn');
+    const loginFormContainer = document.getElementById('login-form-container');
+    const registerFormContainer = document.getElementById('register-form-container');
+    
+    if (tabLoginBtn && tabRegisterBtn && loginFormContainer && registerFormContainer) {
+        tabLoginBtn.addEventListener('click', function() {
+            tabLoginBtn.classList.add('active');
+            tabRegisterBtn.classList.remove('active');
+            loginFormContainer.style.display = 'block';
+            registerFormContainer.style.display = 'none';
+        });
+
+        tabRegisterBtn.addEventListener('click', function() {
+            tabRegisterBtn.classList.add('active');
+            tabLoginBtn.classList.remove('active');
+            registerFormContainer.style.display = 'block';
+            loginFormContainer.style.display = 'none';
+        });
+    }
+
+    const toggleButtons = document.querySelectorAll('.toggle-pwd-btn');
+    toggleButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const targetId = this.getAttribute('data-target');
+            const inputField = document.getElementById(targetId);
+            if (inputField) {
+                const isPassword = inputField.getAttribute('type') === 'password';
+                inputField.setAttribute('type', isPassword ? 'text' : 'password');
+                
+                const icon = this.querySelector('i');
+                if (isPassword) {
+                    icon.classList.remove('fa-eye-slash');
+                    icon.classList.add('fa-eye');
+                    this.setAttribute('title', 'Ocultar contraseña');
+                } else {
+                    icon.classList.remove('fa-eye');
+                    icon.classList.add('fa-eye-slash');
+                    this.setAttribute('title', 'Mostrar contraseña');
+                }
+            }
+        });
+    });
+});
+</script>

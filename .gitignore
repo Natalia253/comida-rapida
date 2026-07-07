@@ -1,0 +1,16 @@
+# Carpeta de configuraciones locales y registros de LocalWP
+/conf/
+/logs/
+
+# Archivos temporales y de sistema
+*.log
+.DS_Store
+Thumbs.db
+node_modules/
+.git/
+
+# WordPress uploads y configuraciones locales
+/app/public/wp-config.php
+/app/public/wp-content/uploads/
+/app/public/wp-content/upgrade/
+/app/public/wp-content/backup-db/
