@@ -31,6 +31,7 @@ if (isset($_POST['login_submit'])) {
         if (!$user) {
             // Mensaje genérico para evitar la enumeración de nombres de usuario
             $login_error = 'El nombre de usuario/correo o la contraseña no son válidos.';
+            comida_rapida_registrar_evento_seguridad('ADVERTENCIA', 'Intento de login fallido con usuario inexistente: ' . $login_input, '', 'Acceso Denegado');
         } else {
             // Verificar bloqueo de cuenta
             $current_time = time();
@@ -38,6 +39,7 @@ if (isset($_POST['login_submit'])) {
                 $remaining = strtotime($user->lockout_until) - $current_time;
                 $minutes = ceil($remaining / 60);
                 $login_error = "Esta cuenta ha sido bloqueada temporalmente debido a múltiples intentos de inicio de sesión fallidos. Inténtalo de nuevo en $minutes minutos.";
+                comida_rapida_registrar_evento_seguridad('ADVERTENCIA', 'Intento de inicio de sesión en cuenta temporalmente bloqueada: ' . $user->username, '', 'Bloqueado');
             } else {
                 if (password_verify($password, $user->password)) {
                     // Restablecer intentos fallidos tras inicio de sesión exitoso
@@ -55,6 +57,8 @@ if (isset($_POST['login_submit'])) {
                     $_SESSION['comida_rapida_cliente_email'] = $user->email;
                     $_SESSION['comida_rapida_role'] = $user->role;
                     
+                    comida_rapida_registrar_evento_seguridad('INFO', 'Inicio de sesión exitoso del usuario: ' . $user->username . ' (' . ucfirst($user->role) . ')', '', 'Acceso Concedido');
+                    
                     if ($user->role === 'administrador') {
                         wp_safe_redirect(add_query_arg('view', 'admin', home_url('/')));
                     } else {
@@ -70,9 +74,11 @@ if (isset($_POST['login_submit'])) {
                         // Bloquear por 30 minutos (1800 segundos)
                         $lockout_until = date('Y-m-d H:i:s', $current_time + 1800);
                         $login_error = 'Demasiados intentos fallidos. Tu cuenta ha sido bloqueada por 30 minutos.';
+                        comida_rapida_registrar_evento_seguridad('CRÍTICO', 'Cuenta bloqueada por múltiples intentos de login fallidos: ' . $user->username, '', 'Bloqueo 30m');
                     } else {
                         $remaining_attempts = 5 - $failed_attempts;
                         $login_error = "El nombre de usuario/correo o la contraseña no son válidos. Te quedan $remaining_attempts intentos antes del bloqueo.";
+                        comida_rapida_registrar_evento_seguridad('ADVERTENCIA', 'Contraseña incorrecta para el usuario: ' . $user->username, '', 'Intento ' . $failed_attempts . '/5');
                     }
 
                     $wpdb->update(

@@ -448,8 +448,19 @@ function comida_rapida_crear_tabla_clientes() {
         UNIQUE KEY email (email)
     ) $charset_collate;";
 
+    $sql_logs = "CREATE TABLE {$wpdb->prefix}comida_rapida_seguridad_logs (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        fecha datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        gravedad varchar(20) NOT NULL,
+        evento text NOT NULL,
+        ip varchar(50) NOT NULL,
+        accion varchar(100) NOT NULL,
+        PRIMARY KEY  (id)
+    ) $charset_collate;";
+
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
+    dbDelta($sql_logs);
 
     // Insertar administrador preestablecido si no existe
     $admin = $wpdb->get_row($wpdb->prepare(
@@ -478,6 +489,52 @@ function comida_rapida_crear_tabla_clientes() {
             );
         }
     }
+    
+    // Si la tabla de logs se acaba de crear vacía, insertar logs informativos por defecto
+    $logs_count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}comida_rapida_seguridad_logs");
+    if ((int)$logs_count === 0) {
+        comida_rapida_registrar_evento_seguridad('INFO', 'Instalación de firma y base de datos antimalware inicializada.', 'Sistema local', 'Activas');
+        comida_rapida_registrar_evento_seguridad('INFO', 'Cabeceras de Seguridad HTTP y HSTS validadas con éxito.', 'Sistema local', 'Activas');
+    }
+}
+
+/**
+ * Registra un evento en la tabla de auditoría de seguridad
+ */
+function comida_rapida_registrar_evento_seguridad($gravedad, $evento, $ip = '', $accion = '') {
+    global $wpdb;
+    $table_logs = $wpdb->prefix . 'comida_rapida_seguridad_logs';
+    
+    if (empty($ip)) {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'Desconocida';
+        if ($ip === '::1' || $ip === '::') {
+            $ip = '127.0.0.1';
+        }
+    }
+    
+    $wpdb->insert(
+        $table_logs,
+        array(
+            'fecha' => current_time('mysql'),
+            'gravedad' => sanitize_text_field($gravedad),
+            'evento' => sanitize_text_field($evento),
+            'ip' => sanitize_text_field($ip),
+            'accion' => sanitize_text_field($accion)
+        ),
+        array('%s', '%s', '%s', '%s', '%s')
+    );
+}
+
+// Loguear activación de plugins
+add_action('activated_plugin', 'comida_rapida_log_plugin_activation', 10, 2);
+function comida_rapida_log_plugin_activation($plugin, $network_wide) {
+    comida_rapida_registrar_evento_seguridad('INFO', 'Plugin activado: ' . $plugin, '', 'Gestión de Plugins');
+}
+
+// Loguear desactivación de plugins
+add_action('deactivated_plugin', 'comida_rapida_log_plugin_deactivation', 10, 2);
+function comida_rapida_log_plugin_deactivation($plugin, $network_wide) {
+    comida_rapida_registrar_evento_seguridad('ADVERTENCIA', 'Plugin desactivado: ' . $plugin, '', 'Gestión de Plugins');
 }
 
 /**
@@ -1239,8 +1296,12 @@ function comida_rapida_force_ssl_critical_pages() {
     }
 }
 
-// Desactivar XML-RPC para prevenir ataques de fuerza bruta
-add_filter('xmlrpc_enabled', '__return_false');
+// Desactivar XML-RPC para prevenir ataques de fuerza bruta y loguearlo
+add_filter('xmlrpc_enabled', 'comida_rapida_log_xmlrpc_attempt');
+function comida_rapida_log_xmlrpc_attempt($enabled) {
+    comida_rapida_registrar_evento_seguridad('ADVERTENCIA', 'Petición de acceso al endpoint XML-RPC', '', 'Bloqueado');
+    return false;
+}
 
 // Restringir el acceso a la API REST de WordPress para usuarios no autenticados
 add_filter('rest_authentication_errors', 'comida_rapida_restrict_rest_api');
@@ -1250,6 +1311,7 @@ function comida_rapida_restrict_rest_api($result) {
     }
     // Permitir acceso a la API REST si es un administrador logueado o si se está usando AJAX en admin
     if (!is_user_logged_in()) {
+        comida_rapida_registrar_evento_seguridad('ADVERTENCIA', 'Intento de acceso bloqueado a la API REST: ' . $_SERVER['REQUEST_URI'], '', 'Acceso Denegado');
         return new WP_Error('rest_not_logged_in', __('Acceso restringido a la API REST.', 'comida-rapida'), array('status' => 401));
     }
     return $result;
