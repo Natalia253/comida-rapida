@@ -52,32 +52,131 @@ function comida_rapida_scripts() {
     // Encolar FontAwesome para iconos
     wp_enqueue_style('font-awesome', 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css', array(), '6.4.0');
     
-    // Encolar hoja de estilos principal del tema
-    wp_enqueue_style('comida-rapida-style', get_stylesheet_uri(), array(), '1.0.0');
+    // Encolar hoja de estilos principal del tema (con versión basada en modificación de archivo para evitar caché de navegador)
+    wp_enqueue_style('comida-rapida-style', get_stylesheet_uri(), array(), filemtime(get_stylesheet_directory() . '/style.css'));
     
     // Encolar script principal
     wp_enqueue_script('comida-rapida-js', get_template_directory_uri() . '/assets/js/main.js', array('jquery'), '1.0.0', true);
     
     // Generar un CAPTCHA aleatorio para la carga inicial
-    if (!isset($_SESSION['comida_rapida_captcha_ans'])) {
-        comida_rapida_generar_captcha();
+    if (class_exists('WooCommerce') && WC()->session) {
+        if (!WC()->session->has_session()) {
+            WC()->session->set_customer_session_cookie(true);
+        }
+        $ans = WC()->session->get('comida_rapida_captcha_ans');
+        if (empty($ans)) {
+            comida_rapida_generar_captcha();
+        }
+    } else {
+        if (!session_id()) {
+            session_start();
+        }
+        if (!isset($_SESSION['comida_rapida_captcha_ans'])) {
+            comida_rapida_generar_captcha();
+        }
+    }
+    
+    // Obtener variables de sesión correspondientes
+    if (class_exists('WooCommerce') && WC()->session) {
+        $q = WC()->session->get('comida_rapida_captcha_q');
+    } else {
+        $q = $_SESSION['comida_rapida_captcha_q'] ?? '¿Cuánto es 5 + 3?';
     }
     
     // Localizar scripts con variables de AJAX y CAPTCHA
     wp_localize_script('comida-rapida-js', 'comidaRapidaData', array(
         'ajax_url' => admin_url('admin-ajax.php'),
         'nonce' => wp_create_nonce('comida_rapida_nonce'),
-        'captcha_q' => $_SESSION['comida_rapida_captcha_q'] ?? '¿Cuánto es 5 + 3?',
+        'captcha_q' => $q ?? '¿Cuánto es 5 + 3?',
         'home_url' => home_url('/')
     ));
 }
 
-// Función para generar una pregunta matemática simple para el CAPTCHA
+// Función para generar un CAPTCHA visual (o matemático si GD no está disponible)
 function comida_rapida_generar_captcha() {
-    $num1 = rand(1, 9);
-    $num2 = rand(1, 9);
-    $_SESSION['comida_rapida_captcha_q'] = "¿Cuánto es $num1 + $num2?";
-    $_SESSION['comida_rapida_captcha_ans'] = $num1 + $num2;
+    $ans = '';
+    $type = 'math';
+    $img = '';
+    $q = '';
+
+    if (extension_loaded('gd')) {
+        $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $code = '';
+        for ($i = 0; $i < 5; $i++) {
+            $code .= $chars[rand(0, strlen($chars) - 1)];
+        }
+        
+        $ans = strtolower($code);
+        $type = 'image';
+        
+        // Crear la imagen
+        $width = 130;
+        $height = 42;
+        $im = imagecreate($width, $height);
+        
+        // Colores HSL adaptados al tema premium de la app (Naranja/Ámbar #F97316)
+        $bg_color = imagecolorallocate($im, 248, 250, 252); // Color pizarra claro slate-50
+        $text_color = imagecolorallocate($im, 249, 115, 22); // Ámbar principal
+        $noise_color = imagecolorallocate($im, 226, 232, 240); // Líneas de ruido slate-200
+        
+        // Agregar líneas de ruido de fondo
+        for ($i = 0; $i < 6; $i++) {
+            imageline($im, rand(0, $width), rand(0, $height), rand(0, $width), rand(0, $height), $noise_color);
+        }
+        
+        // Agregar puntos de ruido
+        for ($i = 0; $i < 60; $i++) {
+            imagesetpixel($im, rand(0, $width), rand(0, $height), $noise_color);
+        }
+        
+        // Dibujar caracteres uno por uno con ligeras variaciones de altura
+        $font = 5; // Fuente incorporada grande
+        $font_width = imagefontwidth($font);
+        $font_height = imagefontheight($font);
+        $total_width = $font_width * strlen($code);
+        $start_x = ($width - $total_width) / 2;
+        
+        for ($i = 0; $i < strlen($code); $i++) {
+            $x = $start_x + ($i * $font_width);
+            $y = rand(6, $height - $font_height - 6);
+            // Dibujar carácter individual
+            imagechar($im, $font, $x, $y, $code[$i], $text_color);
+        }
+        
+        // Capturar buffer de salida
+        ob_start();
+        imagepng($im);
+        $image_data = ob_get_clean();
+        imagedestroy($im);
+        
+        $img = 'data:image/png;base64,' . base64_encode($image_data);
+    } else {
+        // Fallback: CAPTCHA matemático si la librería GD no está instalada
+        $num1 = rand(1, 9);
+        $num2 = rand(1, 9);
+        $q = "¿Cuánto es $num1 + $num2?";
+        $ans = $num1 + $num2;
+        $type = 'math';
+    }
+
+    // Almacenar en la sesión correspondiente
+    if (class_exists('WooCommerce') && WC()->session) {
+        if (!WC()->session->has_session()) {
+            WC()->session->set_customer_session_cookie(true);
+        }
+        WC()->session->set('comida_rapida_captcha_ans', $ans);
+        WC()->session->set('comida_rapida_captcha_type', $type);
+        WC()->session->set('comida_rapida_captcha_img', $img);
+        WC()->session->set('comida_rapida_captcha_q', $q);
+    } else {
+        if (!session_id()) {
+            session_start();
+        }
+        $_SESSION['comida_rapida_captcha_ans'] = $ans;
+        $_SESSION['comida_rapida_captcha_type'] = $type;
+        $_SESSION['comida_rapida_captcha_img'] = $img;
+        $_SESSION['comida_rapida_captcha_q'] = $q;
+    }
 }
 
 // Encolar scripts específicos de WooCommerce
@@ -221,7 +320,23 @@ function comida_rapida_simplify_checkout_fields($fields) {
     foreach ($billing_keys as $key) {
         if (isset($fields['billing'][$key])) {
             $new_billing[$key] = $fields['billing'][$key];
-            // Estilizar inputs para que sean de ancho completo
+            
+            // Personalizar etiquetas y placeholders para mayor claridad
+            if ($key === 'billing_first_name') {
+                $new_billing[$key]['label'] = 'Nombre Completo';
+                $new_billing[$key]['placeholder'] = 'Ej. Juan Pérez';
+            } elseif ($key === 'billing_phone') {
+                $new_billing[$key]['label'] = 'Teléfono de Contacto';
+                $new_billing[$key]['placeholder'] = 'Ej. 11 2233-4455';
+            } elseif ($key === 'billing_email') {
+                $new_billing[$key]['label'] = 'Correo Electrónico';
+                $new_billing[$key]['placeholder'] = 'Ej. juan.perez@correo.com';
+            } elseif ($key === 'billing_address_1') {
+                $new_billing[$key]['label'] = 'Dirección de Entrega';
+                $new_billing[$key]['placeholder'] = 'Calle, número, departamento o indicaciones...';
+            }
+            
+            // Todos ocupan form-row-wide ya que usaremos CSS Grid para re-estructurar el diseño de las columnas
             $new_billing[$key]['class'] = array('form-row-wide');
         }
     }
@@ -691,28 +806,212 @@ function comida_rapida_actualizar_jugo() {
 }
 
 /**
- * 14. Mostrar el campo de CAPTCHA matemático en el checkout de WooCommerce
+ * 14. Mostrar el campo de CAPTCHA en el checkout de WooCommerce (dentro del Paso 2: Detalles de pago)
  */
-add_action('woocommerce_after_checkout_billing_form', 'comida_rapida_checkout_captcha_field');
-function comida_rapida_checkout_captcha_field($checkout) {
-    if (!isset($_SESSION['comida_rapida_captcha_q']) || !isset($_SESSION['comida_rapida_captcha_ans'])) {
-        comida_rapida_generar_captcha();
+add_action('woocommerce_review_order_before_payment', 'comida_rapida_checkout_captcha_field');
+function comida_rapida_checkout_captcha_field($checkout = null) {
+    if (class_exists('WooCommerce') && WC()->session) {
+        if (!WC()->session->has_session()) {
+            WC()->session->set_customer_session_cookie(true);
+        }
+        $ans = WC()->session->get('comida_rapida_captcha_ans');
+        $img = WC()->session->get('comida_rapida_captcha_img');
+        if (empty($ans) || empty($img)) {
+            comida_rapida_generar_captcha();
+        }
+        $ans  = WC()->session->get('comida_rapida_captcha_ans');
+        $type = WC()->session->get('comida_rapida_captcha_type');
+        $img  = WC()->session->get('comida_rapida_captcha_img');
+        $q    = WC()->session->get('comida_rapida_captcha_q');
+    } else {
+        if (!session_id()) {
+            session_start();
+        }
+        if (empty($_SESSION['comida_rapida_captcha_ans']) || empty($_SESSION['comida_rapida_captcha_img'])) {
+            comida_rapida_generar_captcha();
+        }
+        $ans  = $_SESSION['comida_rapida_captcha_ans'] ?? '';
+        $type = $_SESSION['comida_rapida_captcha_type'] ?? 'math';
+        $img  = $_SESSION['comida_rapida_captcha_img'] ?? '';
+        $q    = $_SESSION['comida_rapida_captcha_q'] ?? '';
     }
     
     echo '<div class="captcha-checkout-wrapper" style="margin-top: 25px; padding: 20px; border: var(--border-main); border-radius: 12px; background: var(--bg-primary);">';
-    echo '<h4 style="margin-bottom: 8px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: var(--text-primary);">';
-    echo '<i class="fa-solid fa-shield-halved" style="color: var(--color-amber);"></i> Verificación de Seguridad Antispam</h4>';
-    echo '<p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 15px;">Para procesar tu pedido ficticio, resuelve esta suma:</p>';
+    echo '<h4 style="margin-bottom: 8px; font-weight: 700; color: var(--text-primary);">';
+    echo 'Verificación de Seguridad Antispam</h4>';
     
-    woocommerce_form_field('checkout_captcha_ans', array(
-        'type'        => 'text',
-        'class'       => array('form-row-wide'),
-        'label'       => $_SESSION['comida_rapida_captcha_q'],
-        'placeholder' => 'Escribe la respuesta aquí...',
-        'required'    => true,
-    ), $checkout->get_value('checkout_captcha_ans'));
-    
+    if ($type === 'image') {
+        echo '<p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 15px;">Para procesar tu pedido ficticio, escribe el código de la imagen:</p>';
+        echo '<div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">';
+        echo '  <img src="' . esc_attr($img) . '" alt="CAPTCHA" style="border: var(--border-main); border-radius: 8px; box-shadow: var(--shadow-sm); display: block;" />';
+        echo '  <button type="button" id="btn-reload-captcha" class="btn-reload-captcha" title="Cambiar código"><i class="fa-solid fa-rotate"></i></button>';
+        echo '</div>';
+        
+        $current_value = is_object($checkout) ? $checkout->get_value('checkout_captcha_ans') : (isset($_POST['checkout_captcha_ans']) ? sanitize_text_field($_POST['checkout_captcha_ans']) : '');
+
+        woocommerce_form_field('checkout_captcha_ans', array(
+            'type'        => 'text',
+            'class'       => array('form-row-wide'),
+            'label'       => 'Código CAPTCHA',
+            'placeholder' => 'Escribe las letras/números aquí (no distingue mayúsculas)...',
+            'required'    => true,
+        ), $current_value);
+    } else {
+        // Fallback matemático
+        echo '<p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 15px;">Para procesar tu pedido ficticio, resuelve esta suma:</p>';
+        
+        $current_value = is_object($checkout) ? $checkout->get_value('checkout_captcha_ans') : (isset($_POST['checkout_captcha_ans']) ? sanitize_text_field($_POST['checkout_captcha_ans']) : '');
+
+        woocommerce_form_field('checkout_captcha_ans', array(
+            'type'        => 'text',
+            'class'       => array('form-row-wide'),
+            'label'       => $q,
+            'placeholder' => 'Escribe la respuesta aquí...',
+            'required'    => true,
+        ), $current_value);
+    }
+
     echo '</div>';
+    ?>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+
+        /* ── Botón de recargar CAPTCHA ── */
+        const reloadBtn = document.getElementById('btn-reload-captcha');
+        if (reloadBtn) {
+            reloadBtn.addEventListener('click', function() {
+                const icon = reloadBtn.querySelector('i');
+                icon.classList.add('fa-spin');
+                fetch('<?php echo admin_url('admin-ajax.php'); ?>?action=comida_rapida_refresh_captcha')
+                    .then(response => response.json())
+                    .then(data => {
+                        icon.classList.remove('fa-spin');
+                        if (data.success) {
+                            const captchaImg = reloadBtn.previousElementSibling;
+                            if (captchaImg && captchaImg.tagName === 'IMG') {
+                                captchaImg.src = data.data.img;
+                            }
+                        }
+                    })
+                    .catch(err => {
+                        icon.classList.remove('fa-spin');
+                        console.error('Error actualizando captcha:', err);
+                    });
+            });
+        }
+
+        /* ── Bloqueo del botón amarillo de PayPal hasta que se complete el CAPTCHA ── */
+        function getPaypalArea() {
+            return document.querySelector(
+                '.ppc-button-wrapper, #ppc-button-wrapper, ' +
+                '[id*="ppc-button-wrapper"], .paypal-buttons-container, ' +
+                '.payment_box.payment_method_ppcp-gateway, ' +
+                '.payment_box.payment_method_paypal'
+            );
+        }
+
+        function deshabilitarBotonPaypal(paypalArea) {
+            if (!paypalArea) return;
+            // Aspecto visual de "deshabilitado"
+            paypalArea.style.opacity       = '0.4';
+            paypalArea.style.filter        = 'grayscale(60%)';
+            paypalArea.style.pointerEvents = 'none'; // bloquea clicks en elementos normales
+            paypalArea.style.transition    = 'opacity .25s, filter .25s';
+            paypalArea.title               = 'Completa el CAPTCHA de seguridad primero';
+
+            // Overlay encima del iframe (cross-domain: pointer-events no alcanza al iframe)
+            if (!document.getElementById('cr-paypal-guard')) {
+                const overlay = document.createElement('div');
+                overlay.id = 'cr-paypal-guard';
+                overlay.style.cssText = [
+                    'position:absolute', 'top:0', 'left:0',
+                    'width:100%', 'height:100%',
+                    'z-index:9999', 'cursor:not-allowed',
+                    'border-radius:8px'
+                ].join(';');
+
+                // Al hacer clic: enfocar y destacar el campo CAPTCHA
+                overlay.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const captchaInput = document.getElementById('checkout_captcha_ans');
+                    if (!captchaInput) return;
+                    captchaInput.focus();
+                    captchaInput.style.outline    = '2px solid #e55';
+                    captchaInput.style.boxShadow  = '0 0 0 3px rgba(220,50,50,0.2)';
+                    captchaInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setTimeout(() => {
+                        captchaInput.style.outline   = '';
+                        captchaInput.style.boxShadow = '';
+                    }, 1600);
+                });
+
+                const cs = window.getComputedStyle(paypalArea);
+                if (cs.position === 'static') paypalArea.style.position = 'relative';
+                paypalArea.appendChild(overlay);
+            }
+        }
+
+        function habilitarBotonPaypal(paypalArea) {
+            if (!paypalArea) return;
+            // Restaurar aspecto normal
+            paypalArea.style.opacity       = '1';
+            paypalArea.style.filter        = 'none';
+            paypalArea.style.pointerEvents = 'auto';
+            paypalArea.title               = '';
+
+            // Eliminar overlay
+            const overlay = document.getElementById('cr-paypal-guard');
+            if (overlay) overlay.remove();
+        }
+
+        function actualizarEstadoPaypal() {
+            const paypalArea   = getPaypalArea();
+            const captchaInput = document.getElementById('checkout_captcha_ans');
+            if (!captchaInput || !paypalArea) return;
+
+            if (captchaInput.value.trim() !== '') {
+                habilitarBotonPaypal(paypalArea);
+            } else {
+                deshabilitarBotonPaypal(paypalArea);
+            }
+        }
+
+        // Estado inicial
+        actualizarEstadoPaypal();
+
+        // Actualizar en tiempo real mientras el usuario escribe
+        document.addEventListener('input', function(e) {
+            if (e.target && e.target.id === 'checkout_captcha_ans') {
+                actualizarEstadoPaypal();
+            }
+        });
+
+        // Recrear tras recargas AJAX de WooCommerce
+        document.body.addEventListener('updated_checkout', function() {
+            const old = document.getElementById('cr-paypal-guard');
+            if (old) old.remove();
+            setTimeout(actualizarEstadoPaypal, 800);
+        });
+
+        // MutationObserver: aplicar al detectar el iframe de PayPal
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(m) {
+                m.addedNodes.forEach(function(node) {
+                    if (node.nodeType === 1 && (
+                        (node.className && typeof node.className === 'string' && node.className.includes('paypal')) ||
+                        (node.id && node.id.includes('paypal')) ||
+                        node.tagName === 'IFRAME'
+                    )) {
+                        setTimeout(actualizarEstadoPaypal, 600);
+                    }
+                });
+            });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    });
+    </script>
+    <?php
+
 }
 
 /**
@@ -721,23 +1020,95 @@ function comida_rapida_checkout_captcha_field($checkout) {
 add_action('woocommerce_checkout_process', 'comida_rapida_checkout_captcha_validation');
 function comida_rapida_checkout_captcha_validation() {
     $user_ans = sanitize_text_field($_POST['checkout_captcha_ans'] ?? '');
-    $correct_ans = $_SESSION['comida_rapida_captcha_ans'] ?? null;
+    
+    if (class_exists('WooCommerce') && WC()->session) {
+        $correct_ans = WC()->session->get('comida_rapida_captcha_ans');
+    } else {
+        $correct_ans = $_SESSION['comida_rapida_captcha_ans'] ?? null;
+    }
     
     if (empty($user_ans)) {
-        wc_add_notice('<strong>Error de Seguridad:</strong> Por favor, responde la pregunta de verificación antispam.', 'error');
+        wc_add_notice('<strong>Error de Seguridad:</strong> Por favor, completa la verificación antispam.', 'error');
         return;
     }
     
-    if ($correct_ans === null || intval($user_ans) !== intval($correct_ans)) {
-        wc_add_notice('<strong>Error de Seguridad:</strong> La respuesta antispam es incorrecta. Inténtalo de nuevo.', 'error');
+    if ($correct_ans === null || strtolower(trim($user_ans)) !== strtolower(trim($correct_ans))) {
+        wc_add_notice('<strong>Error de Seguridad:</strong> El código de verificación antispam es incorrecto. Inténtalo de nuevo.', 'error');
         // Regenerar uno nuevo para el siguiente intento
         comida_rapida_generar_captcha();
     }
 }
 
+// AJAX para refrescar el CAPTCHA
+add_action('wp_ajax_comida_rapida_refresh_captcha', 'comida_rapida_ajax_refresh_captcha');
+add_action('wp_ajax_nopriv_comida_rapida_refresh_captcha', 'comida_rapida_ajax_refresh_captcha');
+function comida_rapida_ajax_refresh_captcha() {
+    comida_rapida_generar_captcha();
+    
+    if (class_exists('WooCommerce') && WC()->session) {
+        $img = WC()->session->get('comida_rapida_captcha_img');
+    } else {
+        $img = $_SESSION['comida_rapida_captcha_img'] ?? null;
+    }
+
+    if (!empty($img)) {
+        wp_send_json_success(array('img' => $img));
+    } else {
+        wp_send_json_error();
+    }
+}
+
+/**
+ * 16. Reordenar el DOM del checkout para flujo lógico sin romper las actualizaciones AJAX de WooCommerce.
+ * Estrategia: mover h3 DENTRO de #order_review (WooCommerce lo recarga por ID, no por posición),
+ * luego reordenar los bloques del form: [#order_review] → [#customer_details] → [#payment]
+ */
+add_action('wp_footer', 'comida_rapida_reordenar_checkout_dom');
+function comida_rapida_reordenar_checkout_dom() {
+    if (!is_checkout() || is_wc_endpoint_url('order-received')) return;
+    ?>
+    <script>
+    (function () {
+        function reordenar() {
+            var form            = document.querySelector('form.woocommerce-checkout');
+            if (!form) return;
+
+            var orderReview     = document.getElementById('order_review');
+            var customerDetails = document.getElementById('customer_details');
+
+            if (!customerDetails || !orderReview) return;
+
+            // Orden: [#customer_details (Paso 1 · Facturación)] → [#order_review (Paso 2 · Pedido + Pago)]
+            // #payment queda DENTRO de #order_review — no se mueve nada más
+            form.appendChild(customerDetails);
+            form.appendChild(orderReview);
+
+            // Ocultar texto de privacidad suelto
+            form.querySelectorAll('.woocommerce-privacy-policy-text').forEach(function (el) {
+                el.style.display = 'none';
+            });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', reordenar);
+        } else {
+            reordenar();
+        }
+
+        if (typeof jQuery !== 'undefined') {
+            jQuery(document.body).on('updated_checkout', function () {
+                setTimeout(reordenar, 80);
+            });
+        }
+    })();
+    </script>
+    <?php
+}
+
 /**
  * 13. Insertar tercer lote de nuevos productos (Bebidas, Combos, Hamburguesas y Pizzas) en WooCommerce
  */
+
 add_action('init', 'comida_rapida_insertar_nuevos_productos_lote_3');
 function comida_rapida_insertar_nuevos_productos_lote_3() {
     if (!class_exists('WooCommerce')) {
@@ -914,3 +1285,149 @@ function comida_rapida_paypal_unique_invoice_id($purchase_unit, $order) {
     }
     return $purchase_unit;
 }
+
+/**
+ * Auto-rellenar campos de facturación en el Checkout usando los datos de sesión del cliente activo.
+ * Esto corrige el error en el que WooCommerce pre-rellenaba los datos del administrador WP (ej. Natalia02)
+ * en lugar de los datos del cliente logueado a través del panel personalizado.
+ */
+add_filter('woocommerce_checkout_get_value', 'comida_rapida_autofill_checkout_from_session', 10, 2);
+function comida_rapida_autofill_checkout_from_session($value, $input) {
+    if (isset($_SESSION['comida_rapida_cliente_id'])) {
+        if ($input === 'billing_first_name') {
+            return $_SESSION['comida_rapida_cliente_name'] ?? $value;
+        }
+        if ($input === 'billing_email') {
+            return $_SESSION['comida_rapida_cliente_email'] ?? $value;
+        }
+    }
+    return $value;
+}
+
+/* =====================================================================
+ * SISTEMA DE CUPONES PROMOCIONALES (PAGE-PROMOCIONES)
+ * ===================================================================== */
+
+// 1. Forzar que los cupones estén habilitados en WooCommerce
+add_filter('pre_option_woocommerce_enable_coupons', function() { return 'yes'; });
+
+
+/**
+ * 2. Crear los 9 cupones de page-promociones.php en WooCommerce de forma automática
+ */
+add_action('init', 'comida_rapida_crear_cupones_promocionales', 30);
+function comida_rapida_crear_cupones_promocionales() {
+    if (!class_exists('WooCommerce')) return;
+
+    $cupones = array(
+        array(
+            'code'          => 'familiacombo',
+            'type'          => 'fixed_cart',
+            'amount'        => '10.00',
+            'description'   => 'Descuento Combo Familiar - $10 menos en tu orden',
+            'minimum'       => '0',
+        ),
+        array(
+            'code'          => 'happy15',
+            'type'          => 'percent',
+            'amount'        => '15',
+            'description'   => 'Descuento Hora Feliz - 15% de descuento en tu orden',
+            'minimum'       => '0',
+        ),
+        array(
+            'code'          => 'estudiante10',
+            'type'          => 'percent',
+            'amount'        => '10',
+            'description'   => 'Descuento Estudiantil - 10% de descuento en tu orden',
+            'minimum'       => '0',
+        ),
+        array(
+            'code'          => 'doblemonster',
+            'type'          => 'fixed_cart',
+            'amount'        => '5.00',
+            'description'   => 'Combo Doble - Ahorra $5 en tu orden',
+            'minimum'       => '0',
+        ),
+        array(
+            'code'          => 'bebidagratis',
+            'type'          => 'fixed_cart',
+            'amount'        => '3.00',
+            'description'   => 'Bebida Gratis - Ahorra $3 en compras mayores a $20',
+            'minimum'       => '20.00',
+        ),
+        array(
+            'code'          => 'pizza25',
+            'type'          => 'percent',
+            'amount'        => '25',
+            'description'   => 'Jueves de Pizza - 25% de descuento en tu orden',
+            'minimum'       => '0',
+        ),
+        array(
+            'code'          => 'vipmonster',
+            'type'          => 'fixed_cart',
+            'amount'        => '12.00',
+            'description'   => 'Fidelidad Monster - Ahorra $12 en tu orden',
+            'minimum'       => '0',
+        ),
+        array(
+            'code'          => 'web5',
+            'type'          => 'percent',
+            'amount'        => '5',
+            'description'   => 'Pedido Online - 5% de descuento en tu orden',
+            'minimum'       => '0',
+        ),
+        array(
+            'code'          => 'temporada2026',
+            'type'          => 'percent',
+            'amount'        => '20',
+            'description'   => 'Descuento de Temporada - 20% de descuento en tu orden',
+            'minimum'       => '0',
+        ),
+    );
+
+    foreach ($cupones as $c) {
+        $code = sanitize_title($c['code']);
+        if (wc_get_coupon_id_by_code($code)) {
+            continue; // Si el cupón ya existe, no hacer nada
+        }
+
+        $post_id = wp_insert_post(array(
+            'post_title'   => strtoupper($code),
+            'post_name'    => $code,
+            'post_type'    => 'shop_coupon',
+            'post_status'  => 'publish',
+            'post_excerpt' => $c['description'],
+        ));
+
+        if ($post_id && !is_wp_error($post_id)) {
+            update_post_meta($post_id, 'discount_type',        $c['type']);
+            update_post_meta($post_id, 'coupon_amount',        $c['amount']);
+            update_post_meta($post_id, 'individual_use',       'no');
+            update_post_meta($post_id, 'usage_limit',          '1000');
+            update_post_meta($post_id, 'minimum_amount',       $c['minimum']);
+            update_post_meta($post_id, 'free_shipping',        'no');
+            update_post_meta($post_id, 'exclude_sale_items',   'no');
+        }
+    }
+}
+
+/**
+ * 3. Auto-aplicar cupón si se pasa en la URL como ?coupon=CODIGO o ?coupon_code=CODIGO
+ */
+add_action('wp_loaded', 'comida_rapida_auto_apply_coupon_from_url');
+function comida_rapida_auto_apply_coupon_from_url() {
+    if (!class_exists('WooCommerce') || !WC()->cart) return;
+
+    $coupon = isset($_GET['coupon']) ? sanitize_text_field($_GET['coupon']) : '';
+    if (empty($coupon)) {
+        $coupon = isset($_GET['coupon_code']) ? sanitize_text_field($_GET['coupon_code']) : '';
+    }
+
+    if (!empty($coupon)) {
+        $coupon_code = strtolower(trim($coupon));
+        if (WC()->cart->has_discount($coupon_code)) return;
+        
+        WC()->cart->add_discount($coupon_code);
+    }
+}
+

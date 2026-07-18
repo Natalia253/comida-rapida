@@ -6,7 +6,21 @@
 get_header();
 
 // Obtener y sanitizar la vista actual (por defecto 'home')
-$view = isset($_GET['view']) ? sanitize_text_field($_GET['view']) : 'home';
+$view = isset($_GET['view']) ? sanitize_text_field($_GET['view']) : '';
+
+// Si es una página nativa de WooCommerce, asignar la vista correspondiente automáticamente
+if (class_exists('WooCommerce')) {
+    if (is_cart()) {
+        $view = 'carrito';
+    } elseif (is_checkout()) {
+        $view = 'compra';
+    }
+}
+
+// Si sigue vacía, por defecto es 'home'
+if (empty($view)) {
+    $view = 'home';
+}
 
 // Validar vistas permitidas para mayor seguridad
 $allowed_views = array('home', 'menu', 'carrito', 'compra', 'contacto', 'login', 'admin', 'promociones');

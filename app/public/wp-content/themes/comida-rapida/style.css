@@ -1110,49 +1110,214 @@ main section.section-padding:first-of-type {
     color: var(--text-muted);
 }
 
-/* --- WOOCOMMERCE CHECKOUT STYLING (PREMIUM APPS) --- */
+/* ============================================================
+   WOOCOMMERCE CHECKOUT — LAYOUT COLUMNA ÚNICA, 2 CARDS
+   Orden: [#customer_details] → [#order_review (tabla + #payment)]
+   JS solo reordena bloques; #payment permanece dentro de #order_review
+   ============================================================ */
+
 form.woocommerce-checkout {
-    display: grid !important;
-    grid-template-columns: 1.15fr 0.85fr !important;
-    gap: 30px !important;
-    align-items: start !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 22px !important;
+    max-width: 900px !important;
+    margin: 0 auto !important;
 }
 
-@media (max-width: 992px) {
-    form.woocommerce-checkout {
-        grid-template-columns: 1fr !important;
-        display: block !important;
-    }
-    #customer_details,
-    #order_review_heading,
-    #order_review {
-        grid-column: auto !important;
-        grid-row: auto !important;
-    }
-}
-
-/* Alinear detalles del cliente a la izquierda y orden a la derecha */
-#customer_details {
-    grid-column: 1 !important;
-    grid-row: 1 / span 2 !important;
-    display: block !important;
-}
-
-#order_review_heading {
-    grid-column: 2 !important;
-    grid-row: 1 !important;
-    margin-top: 0 !important;
-    font-size: 1.35rem;
-    font-weight: 700;
-    margin-bottom: 20px;
-    color: var(--text-primary);
-    border-bottom: var(--border-main);
-    padding-bottom: 12px;
-}
-
+/* ── CARDS: estilos base ── */
+#customer_details,
 #order_review {
-    grid-column: 2 !important;
-    grid-row: 2 !important;
+    background: var(--bg-secondary) !important;
+    border: var(--border-main) !important;
+    border-radius: 16px !important;
+    padding: 28px !important;
+    box-shadow: var(--shadow-sm) !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+}
+
+/* ── BADGES DE PASO (::before) ── */
+#customer_details::before,
+#order_review::before {
+    display: inline-block;
+    font-size: 0.66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--color-primary, #f97316);
+    background: rgba(249, 115, 22, 0.08);
+    padding: 3px 10px;
+    border-radius: 20px;
+    margin-bottom: 16px;
+}
+
+#customer_details::before {
+    content: 'Paso 1 · Datos de entrega';
+}
+
+#order_review::before {
+    content: 'Paso 2 · Tu pedido';
+}
+
+/* ── CARD 1: FACTURACIÓN ── */
+/* (estilos de campos en la sección más abajo) */
+
+/* ── CARD 2: RESUMEN + PAGO ── */
+
+/* Tabla de productos */
+table.woocommerce-checkout-review-order-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 0.91rem !important;
+}
+
+table.woocommerce-checkout-review-order-table th,
+table.woocommerce-checkout-review-order-table td {
+    padding: 11px 4px !important;
+    border: none !important;
+    border-bottom: var(--border-main) !important;
+    text-align: left !important;
+    vertical-align: middle !important;
+}
+
+table.woocommerce-checkout-review-order-table tr:last-child th,
+table.woocommerce-checkout-review-order-table tr:last-child td {
+    border-bottom: none !important;
+}
+
+table.woocommerce-checkout-review-order-table .order-total td,
+table.woocommerce-checkout-review-order-table .order-total th {
+    color: var(--color-primary) !important;
+    font-weight: 800 !important;
+    font-size: 1.05rem !important;
+}
+
+/* ── MÉTODO DE PAGO (dentro de #order_review) ── */
+#order_review #payment {
+    background: transparent !important;
+    border: none !important;
+    border-top: var(--border-main) !important;
+    border-radius: 0 !important;
+    padding: 20px 0 0 !important;
+    margin-top: 20px !important;
+    box-shadow: none !important;
+}
+
+/* Etiqueta interna "Método de pago" */
+#order_review #payment::before {
+    content: 'Método de pago';
+    display: inline-block;
+    font-size: 0.66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--color-primary, #f97316);
+    background: rgba(249, 115, 22, 0.08);
+    padding: 3px 10px;
+    border-radius: 20px;
+    margin-bottom: 14px;
+}
+
+#order_review #payment ul.payment_methods {
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 0 0 14px 0 !important;
+}
+
+#order_review #payment ul.payment_methods li {
+    padding: 11px 14px !important;
+    background: var(--bg-primary) !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(0, 0, 0, 0.07) !important;
+    margin-bottom: 8px !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+}
+
+#order_review #payment div.payment_box {
+    background: var(--bg-primary) !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+    font-size: 0.84rem !important;
+    color: var(--text-secondary) !important;
+    margin-top: 6px !important;
+    border: 1px solid rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Texto de privacidad — oculto por JS, pero también por CSS como respaldo */
+form.woocommerce-checkout > .woocommerce-privacy-policy-text {
+    display: none !important;
+}
+
+/* El h3 "Tu pedido" es redundante: el badge ::before de #order_review ya dice "Paso 1 · Tu pedido" */
+h3#order_review_heading {
+    display: none !important;
+}
+
+/* ============================================================
+   ESTILOS DE BOTONES DE PAGO — Solo botón amarillo PayPal
+   El azul (#place_order) se oculta. El amarillo ocupa 100% de ancho.
+   ============================================================ */
+
+/* Ocultar el botón azul "Ir a PayPal" */
+#payment #place_order,
+#payment button.button.alt,
+#payment input[type="submit"] {
+    display: none !important;
+}
+
+/* Contenedores wrappers del SDK → ancho centrado */
+#payment div[class*="paypal"],
+#payment div[class*="ppc"],
+#payment div[id*="ppc"],
+.paypal-buttons,
+.paypal-buttons-container,
+.paypal-button-row,
+.ppc-button-wrapper,
+#ppc-button-wrapper,
+.zoid-container,
+.zoid-outlet {
+    width: 100% !important;
+    max-width: 450px !important;
+    min-width: 200px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* Iframe amarillo PayPal → mismo max-width, centrado */
+#payment iframe,
+#payment .paypal-buttons iframe,
+#payment .ppc-button-wrapper iframe,
+#payment [class*="paypal-buttons"] iframe {
+    width: 100% !important;
+    max-width: 450px !important;
+    min-width: 200px !important;
+    height: 55px !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    margin: 0 auto !important;
+}
+
+/* Bloque del plugin PayPal → ancho completo */
+#payment .payment_box.payment_method_paypal,
+#payment .payment_box.payment_method_ppcp-gateway {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+}
+#payment .payment_box.payment_method_paypal *,
+#payment .payment_box.payment_method_ppcp-gateway * {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/* Contenedor de CAPTCHA a ancho normal */
+.captcha-checkout-wrapper {
+    margin-top: 25px !important;
+    box-sizing: border-box !important;
 }
 
 /* Ocultar secciones innecesarias para simplificar la compra rápida */
@@ -1170,6 +1335,49 @@ h3#ship-to-different-address,
     color: var(--text-primary);
     border-bottom: var(--border-main);
     padding-bottom: 12px;
+}
+
+/* Diseño de cuadrícula premium para los campos esenciales de facturación */
+.woocommerce-billing-fields__field-wrapper {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 0;
+}
+
+@media (min-width: 600px) {
+    .woocommerce-billing-fields__field-wrapper {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 20px !important;
+    }
+    #billing_first_name_field,
+    #billing_address_1_field {
+        grid-column: span 2 !important;
+    }
+}
+
+/* Botón de refrescar CAPTCHA premium con rotación */
+.btn-reload-captcha {
+    background: var(--bg-primary);
+    border: var(--border-main);
+    color: var(--color-amber);
+    cursor: pointer;
+    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-sm);
+}
+.btn-reload-captcha:hover {
+    background: rgba(249, 115, 22, 0.08);
+    border-color: var(--color-amber);
+    transform: rotate(180deg);
+}
+.btn-reload-captcha i {
+    transition: transform 0.25s ease;
 }
 
 form.woocommerce-checkout .form-row {
@@ -2356,43 +2564,34 @@ form.woocommerce-checkout #place_order:hover {
 
 /* Checkout */
 .woocommerce-checkout .col2-set {
-    display: grid;
-    grid-template-columns: 1.1fr 0.9fr;
-    gap: 40px;
-    margin-bottom: 40px;
+    display: block !important;
+    margin-bottom: 0 !important;
 }
 
-@media (max-width: 768px) {
-    .woocommerce-checkout .col2-set {
-        grid-template-columns: 1fr;
-    }
+.woocommerce-checkout .col2-set .col-1 {
+    width: 100% !important;
+    float: none !important;
+    padding: 0 !important;
 }
 
-.woocommerce-checkout #order_review_heading {
-    font-family: var(--font-serif);
-    font-size: 1.6rem;
-    margin-top: 30px;
-    margin-bottom: 20px;
-}
-
-.woocommerce-checkout #order_review {
-    background: var(--bg-secondary);
-    border: var(--border-main);
-    border-radius: 8px;
-    padding: 30px;
-}
-
-.woocommerce-checkout-payment {
-    background: var(--bg-primary) !important;
-    border-radius: 6px !important;
+.woocommerce-checkout #customer_details {
+    background: var(--bg-secondary) !important;
     border: var(--border-main) !important;
-    padding: 20px !important;
-    margin-top: 20px;
+    border-radius: 12px !important;
+    padding: 30px !important;
+    box-shadow: var(--shadow-sm) !important;
+    margin-bottom: 0 !important;
 }
+
+/* Las propiedades de estructura de compra y pago fueron unificadas en la sección superior */
 
 .woocommerce-checkout-payment ul.payment_methods {
     border-bottom: var(--border-main) !important;
     padding-bottom: 15px !important;
+    margin-bottom: 15px !important;
+}
+
+.woocommerce-checkout-payment ul.payment_methods li {
     margin-bottom: 15px !important;
 }
 
@@ -2417,16 +2616,16 @@ form.woocommerce-checkout #place_order:hover {
     font-weight: 600;
 }
 
-/* Mensajes de Notificación */
 .woocommerce-error, 
 .woocommerce-info, 
 .woocommerce-message {
+    position: relative !important; /* Contexto para posicionar el icono */
     background: var(--bg-secondary) !important;
     border: var(--border-main) !important;
     border-left: 6px solid var(--color-amber) !important;
     border-radius: 6px !important;
     color: var(--text-primary) !important;
-    padding: 18px 24px !important;
+    padding: 18px 24px 18px 54px !important; /* Espacio extra a la izquierda para el icono */
     margin-bottom: 30px !important;
     font-size: 0.95rem;
     list-style: none !important;
@@ -2439,6 +2638,20 @@ form.woocommerce-checkout #place_order:hover {
 .woocommerce-error {
     border-left-color: var(--color-red) !important;
 }
+
+/* Evitar que el icono de WooCommerce traspase o tape las primeras letras del texto */
+.woocommerce-error::before, 
+.woocommerce-info::before, 
+.woocommerce-message::before {
+    position: absolute !important;
+    top: 50% !important;
+    left: 18px !important;
+    transform: translateY(-50%) !important;
+    margin: 0 !important;
+    display: inline-block !important;
+    line-height: 1 !important;
+}
+
 
 /* --- WOOCOMMERCE ORDER RECEIVED / THANK YOU PAGE --- */
 .woocommerce-order {

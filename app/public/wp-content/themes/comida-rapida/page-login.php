@@ -569,14 +569,36 @@ if (!empty($register_error) || isset($_POST['register_submit'])) {
 
                         <div class="form-group">
                             <label for="reg_password" class="form-label">Contraseña *</label>
-                            <div style="position: relative;">
+                            <div style="position: relative; margin-bottom: 8px;">
                                 <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
                                     <i class="fa-solid fa-key"></i>
                                 </span>
-                                <input type="password" id="reg_password" name="reg_password" class="form-input" placeholder="Mínimo 6 caracteres" required style="padding-left: 45px; padding-right: 45px;">
+                                <input type="password" id="reg_password" name="reg_password" class="form-input" placeholder="Mínimo 8 caracteres" required style="padding-left: 45px; padding-right: 45px;">
                                 <span class="toggle-pwd-btn" data-target="reg_password" style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted); cursor: pointer;" title="Mostrar contraseña">
                                     <i class="fa-solid fa-eye-slash"></i>
                                 </span>
+                            </div>
+                            
+                            <!-- Indicador visual de políticas de contraseña -->
+                            <div id="password-policies-box" style="margin-top: 10px; font-size: 0.82rem; background: var(--bg-primary); border: var(--border-main); padding: 12px; border-radius: 8px; display: none;">
+                                <span style="font-weight: 700; color: var(--text-primary); display: block; margin-bottom: 6px;">La contraseña debe incluir:</span>
+                                <ul style="list-style: none; padding-left: 0; margin: 0; display: flex; flex-direction: column; gap: 6px;">
+                                    <li id="policy-len" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="policy-len-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Al menos 8 caracteres
+                                    </li>
+                                    <li id="policy-upper" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="policy-upper-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Una letra mayúscula (A-Z)
+                                    </li>
+                                    <li id="policy-lower" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="policy-lower-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Una letra minúscula (a-z)
+                                    </li>
+                                    <li id="policy-num" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="policy-num-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Un número (0-9)
+                                    </li>
+                                    <li id="policy-spec" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="policy-spec-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Un carácter especial (ej. !@#$%^&*)
+                                    </li>
+                                </ul>
                             </div>
                         </div>
 
@@ -675,5 +697,60 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Validación en tiempo real de la contraseña de registro
+    const regPassword = document.getElementById('reg_password');
+    const policiesBox = document.getElementById('password-policies-box');
+    
+    if (regPassword && policiesBox) {
+        const policyLen = document.getElementById('policy-len');
+        const policyLenIcon = document.getElementById('policy-len-icon-container');
+        const policyUpper = document.getElementById('policy-upper');
+        const policyUpperIcon = document.getElementById('policy-upper-icon-container');
+        const policyLower = document.getElementById('policy-lower');
+        const policyLowerIcon = document.getElementById('policy-lower-icon-container');
+        const policyNum = document.getElementById('policy-num');
+        const policyNumIcon = document.getElementById('policy-num-icon-container');
+        const policySpec = document.getElementById('policy-spec');
+        const policySpecIcon = document.getElementById('policy-spec-icon-container');
+        
+        regPassword.addEventListener('focus', function() {
+            policiesBox.style.display = 'block';
+        });
+        
+        regPassword.addEventListener('input', function() {
+            const val = regPassword.value;
+            
+            // Requisito 1: Longitud >= 8
+            const hasLen = val.length >= 8;
+            updatePolicyUI(policyLen, policyLenIcon, hasLen);
+            
+            // Requisito 2: Mayúscula
+            const hasUpper = /[A-Z]/.test(val);
+            updatePolicyUI(policyUpper, policyUpperIcon, hasUpper);
+            
+            // Requisito 3: Minúscula
+            const hasLower = /[a-z]/.test(val);
+            updatePolicyUI(policyLower, policyLowerIcon, hasLower);
+            
+            // Requisito 4: Número
+            const hasNum = /[0-9]/.test(val);
+            updatePolicyUI(policyNum, policyNumIcon, hasNum);
+            
+            // Requisito 5: Carácter especial
+            const hasSpec = /[^A-Za-z0-9]/.test(val);
+            updatePolicyUI(policySpec, policySpecIcon, hasSpec);
+        });
+        
+        function updatePolicyUI(element, iconContainer, isMet) {
+            if (isMet) {
+                element.style.color = 'var(--color-green)';
+                iconContainer.innerHTML = '<i class="fa-solid fa-check" style="font-size: 0.8rem; color: var(--color-green);"></i>';
+            } else {
+                element.style.color = 'var(--text-muted)';
+                iconContainer.innerHTML = '<i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i>';
+            }
+        }
+    }
 });
 </script>

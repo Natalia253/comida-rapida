@@ -25,7 +25,7 @@ if (!comida_rapida_is_logged_in()) {
             <?php endif; ?>
         </div>
         
-        <div class="wc-checkout-wrapper" style="background: var(--bg-secondary); border: var(--border-main); padding: 30px; border-radius: 8px;">
+        <div class="wc-checkout-wrapper" style="background: transparent; border: none; padding: 0; box-shadow: none;">
             <?php
             if (class_exists('WooCommerce')) {
                 echo do_shortcode('[woocommerce_checkout]');
@@ -36,13 +36,16 @@ if (!comida_rapida_is_logged_in()) {
         </div>
 
         <!-- NOTIFICACIÓN DE CUMPLIMIENTO PCI DSS -->
-        <div class="pci-compliance-notice" style="margin-top: 20px; padding: 20px; border: var(--border-main); border-radius: 12px; background: var(--bg-primary); display: flex; align-items: flex-start; gap: 15px; box-shadow: var(--shadow-sm);">
-            <div style="font-size: 2rem; color: var(--color-green); margin-top: 2px;">
-                <i class="fa-solid fa-shield-halved"></i>
-            </div>
-            <div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5;">
-                <strong style="color: var(--text-primary); display: block; margin-bottom: 4px; font-weight: 700;">Conexión Segura & Cumplimiento PCI DSS</strong>
-                Este sitio web implementa los estándares de seguridad de datos de la industria de tarjetas de pago (<strong>PCI DSS</strong>). La transmisión de tus datos está cifrada con SSL/TLS. Toda transacción se realiza mediante pasarelas de pago externas tokenizadas; la información confidencial de tarjetas de crédito nunca se almacena en nuestros servidores.
+        <br>
+        <div style="max-width: 900px; margin: 0 auto;">
+            <div class="pci-compliance-notice" style="margin-top: 4px; padding: 18px 22px; border: var(--border-main); border-radius: 12px; background: var(--bg-primary); display: flex; align-items: flex-start; gap: 15px; box-shadow: var(--shadow-sm);">
+                <div style="font-size: 1.8rem; color: var(--color-green); margin-top: 2px; flex-shrink: 0;">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.55;">
+                    <strong style="color: var(--text-primary); display: block; margin-bottom: 4px; font-weight: 700;">Conexión Segura &amp; Cumplimiento PCI DSS</strong>
+                    Este sitio implementa los estándares <strong>PCI DSS</strong>. La transmisión de datos está cifrada con SSL/TLS. Las transacciones se realizan mediante pasarelas tokenizadas; la información de tarjetas nunca se almacena en nuestros servidores.
+                </div>
             </div>
         </div>
     </div>
