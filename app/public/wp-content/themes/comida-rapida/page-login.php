@@ -167,10 +167,170 @@ if (isset($_POST['register_submit'])) {
     }
 }
 
+// Procesar solicitud de recuperación de contraseña
+$forgot_error = '';
+$forgot_success = '';
+if (isset($_POST['forgot_submit'])) {
+    if (!isset($_POST['forgot_nonce']) || !wp_verify_nonce($_POST['forgot_nonce'], 'comida_rapida_forgot_action')) {
+        $forgot_error = 'Error de seguridad. Por favor, intente de nuevo.';
+    } else {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'comida_rapida_clientes';
+        $forgot_input = sanitize_text_field($_POST['forgot_input']);
+        
+        $user = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE username = %s OR email = %s",
+            $forgot_input, $forgot_input
+        ));
+        
+        // Mensaje de éxito genérico para evitar la enumeración de usuarios
+        $forgot_success = 'Si la cuenta existe, se ha enviado un correo electrónico con instrucciones para restablecer tu contraseña.';
+        
+        if ($user) {
+            $token = wp_generate_password(32, false);
+            $expiry = date('Y-m-d H:i:s', current_time('timestamp') + 3600); // 1 hora de validez
+            
+            $wpdb->update(
+                $table_name,
+                array(
+                    'reset_token' => $token,
+                    'reset_token_expiry' => $expiry
+                ),
+                array('id' => $user->id),
+                array('%s', '%s'),
+                array('%d')
+            );
+            
+            comida_rapida_registrar_evento_seguridad('INFO', 'Solicitud de recuperación de contraseña para: ' . $user->username, '', 'Recuperación Solicitada');
+            
+            // Enviar correo
+            $reset_link = add_query_arg(array(
+                'view' => 'login',
+                'action' => 'reset_password',
+                'token' => $token,
+                'email' => $user->email
+            ), home_url('/'));
+            
+            $subject = 'Recuperar contraseña - Comida Rápida';
+            $headers = array(
+                'Content-Type: text/html; charset=UTF-8',
+                'From: Comida Rápida <no-reply@' . parse_url(home_url(), PHP_URL_HOST) . '>'
+            );
+            
+            $message = '
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial, sans-serif; background-color: #0f172a; color: #f1f5f9; padding: 20px; }
+                    .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 30px; max-width: 500px; margin: 0 auto; }
+                    .header { text-align: center; margin-bottom: 20px; }
+                    .title { color: #f97316; font-size: 24px; font-weight: bold; }
+                    .text { font-size: 16px; line-height: 1.5; color: #cbd5e1; }
+                    .btn-container { text-align: center; margin: 30px 0; }
+                    .btn { background-color: #f97316; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 50px; font-weight: bold; display: inline-block; }
+                    .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #64748b; border-top: 1px solid #334155; padding-top: 20px; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <div class="header">
+                        <span class="title">Comida Rápida</span>
+                    </div>
+                    <p class="text">Hola <strong>' . esc_html($user->username) . '</strong>,</p>
+                    <p class="text">Hemos recibido una solicitud para restablecer la contraseña de tu cuenta de cliente. Haz clic en el botón de abajo para elegir una nueva contraseña. Este enlace es válido por 1 hora.</p>
+                    <div class="btn-container">
+                        <a href="' . esc_url($reset_link) . '" class="btn">Restablecer Contraseña</a>
+                    </div>
+                    <p class="text" style="font-size: 13px; color: #94a3b8;">Si no has solicitado este cambio, puedes ignorar este correo con tranquilidad. Tu contraseña seguirá siendo segura y sin cambios.</p>
+                    <div class="footer">
+                        Proyecto Académico Simulador de Comercio Electrónico.
+                    </div>
+                </div>
+            </body>
+            </html>';
+            
+            wp_mail($user->email, $subject, $message, $headers);
+        }
+    }
+}
+
+// Procesar el restablecimiento de contraseña
+$reset_error = '';
+$valid_reset_token = false;
+$reset_user = null;
+
+if (isset($_GET['action']) && $_GET['action'] === 'reset_password' && isset($_GET['token']) && isset($_GET['email'])) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'comida_rapida_clientes';
+    $token = sanitize_text_field($_GET['token']);
+    $email = sanitize_email($_GET['email']);
+    
+    $reset_user = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table_name WHERE email = %s AND reset_token = %s AND reset_token_expiry > %s",
+        $email, $token, current_time('mysql')
+    ));
+    
+    if ($reset_user) {
+        $valid_reset_token = true;
+        
+        if (isset($_POST['reset_submit'])) {
+            if (!isset($_POST['reset_nonce']) || !wp_verify_nonce($_POST['reset_nonce'], 'comida_rapida_reset_action')) {
+                $reset_error = 'Error de seguridad. Por favor, intente de nuevo.';
+            } else {
+                $password = $_POST['new_password'];
+                $password_confirm = $_POST['new_password_confirm'];
+                
+                if (empty($password)) {
+                    $reset_error = 'Por favor complete todos los campos obligatorios.';
+                } elseif ($password !== $password_confirm) {
+                    $reset_error = 'Las contraseñas no coinciden.';
+                } elseif (strlen($password) < 8) {
+                    $reset_error = 'La contraseña debe tener al menos 8 caracteres para cumplir con las políticas PCI DSS.';
+                } elseif (!preg_match('/[A-Z]/', $password)) {
+                    $reset_error = 'La contraseña debe incluir al menos una letra mayúscula.';
+                } elseif (!preg_match('/[a-z]/', $password)) {
+                    $reset_error = 'La contraseña debe incluir al menos una letra minúscula.';
+                } elseif (!preg_match('/[0-9]/', $password)) {
+                    $reset_error = 'La contraseña debe incluir al menos un número.';
+                } elseif (!preg_match('/[^A-Za-z0-9]/', $password)) {
+                    $reset_error = 'La contraseña debe incluir al menos un carácter especial (ej. !@#$%^&*).';
+                } else {
+                    $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+                    
+                    $wpdb->update(
+                        $table_name,
+                        array(
+                            'password' => $hashed_password,
+                            'reset_token' => null,
+                            'reset_token_expiry' => null,
+                            'failed_attempts' => 0,
+                            'lockout_until' => null
+                        ),
+                        array('id' => $reset_user->id),
+                        array('%s', '%s', '%s', '%d', '%s'),
+                        array('%d')
+                    );
+                    
+                    comida_rapida_registrar_evento_seguridad('INFO', 'Contraseña restablecida con éxito para el usuario: ' . $reset_user->username, '', 'Contraseña Restablecida');
+                    
+                    wp_safe_redirect(add_query_arg(array('view' => 'login', 'notice' => 'password_reset_success'), home_url('/')));
+                    exit;
+                }
+            }
+        }
+    } else {
+        $reset_error = 'El enlace de recuperación es inválido o ha expirado. Por favor, solicita uno nuevo.';
+    }
+}
+
 // Determinar pestaña activa
 $active_tab = 'login';
-if (!empty($register_error) || isset($_POST['register_submit'])) {
+if ($valid_reset_token) {
+    $active_tab = 'reset';
+} elseif (!empty($register_error) || isset($_POST['register_submit'])) {
     $active_tab = 'register';
+} elseif (!empty($forgot_error) || !empty($forgot_success) || isset($_POST['forgot_submit'])) {
+    $active_tab = 'forgot';
 }
 ?>
 
@@ -469,7 +629,7 @@ if (!empty($register_error) || isset($_POST['register_submit'])) {
             
                 
                 <!-- Selector de Pestañas (Tabs) Estilo Premium (Bordes finos, contrastes fuertes) -->
-                <div class="login-tabs" style="display: flex; border: var(--border-main); border-radius: 8px; overflow: hidden; margin-bottom: 30px; background: var(--bg-primary);">
+                <div class="login-tabs" id="login-tabs" style="display: <?php echo ($active_tab === 'forgot' || $valid_reset_token) ? 'none' : 'flex'; ?>; border: var(--border-main); border-radius: 8px; overflow: hidden; margin-bottom: 30px; background: var(--bg-primary);">
                     <button type="button" class="login-tab-btn <?php echo $active_tab === 'login' ? 'active' : ''; ?>" id="tab-login-btn" style="flex: 1; padding: 12px; text-align: center; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: var(--transition-fast); border: none;">
                         Iniciar Sesión
                     </button>
@@ -491,6 +651,10 @@ if (!empty($register_error) || isset($_POST['register_submit'])) {
                     <?php elseif (isset($_GET['notice']) && $_GET['notice'] === 'session_timeout') : ?>
                         <div class="form-status-msg error" style="margin-bottom: 20px; display: block; border-color: var(--color-amber); background: rgba(249, 115, 22, 0.05); color: var(--color-amber);">
                             <i class="fa-solid fa-circle-exclamation"></i> Tu sesión ha expirado por inactividad. Por favor, ingresa de nuevo.
+                        </div>
+                    <?php elseif (isset($_GET['notice']) && $_GET['notice'] === 'password_reset_success') : ?>
+                        <div class="form-status-msg success" style="margin-bottom: 20px; display: block;">
+                            <i class="fa-solid fa-circle-check"></i> Tu contraseña ha sido restablecida con éxito. Ya puedes iniciar sesión.
                         </div>
                     <?php endif; ?>
 
@@ -530,6 +694,7 @@ if (!empty($register_error) || isset($_POST['register_submit'])) {
                             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary);">
                                 <input type="checkbox" name="rememberme" value="forever" style="width: 16px; height: 16px; accent-color: var(--color-amber);"> Recordarme
                             </label>
+                            <a href="#" id="forgot-password-link" style="color: var(--color-amber); text-decoration: none; font-weight: 600; transition: var(--transition-fast);">¿Olvidaste tu contraseña?</a>
                         </div>
 
                         <button type="submit" name="login_submit" class="btn btn-primary form-submit-btn" style="border-radius: 50px;">
@@ -627,6 +792,121 @@ if (!empty($register_error) || isset($_POST['register_submit'])) {
                     </form>
                 </div>
 
+                <!-- CONTENEDOR FORMULARIO DE RECUPERACIÓN DE CONTRASEÑA -->
+                <div class="forgot-form-container" id="forgot-form-container" style="display: <?php echo $active_tab === 'forgot' ? 'block' : 'none'; ?>;">
+                    <h3 style="font-size: 1.35rem; font-weight: 700; color: var(--text-primary); margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-key" style="color: var(--color-amber);"></i> Recuperar contraseña
+                    </h3>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5;">
+                        Ingresa tu nombre de usuario o correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
+                    </p>
+
+                    <?php if (!empty($forgot_error)) : ?>
+                        <div class="form-status-msg error" style="margin-bottom: 20px; display: block;">
+                            <i class="fa-solid fa-circle-xmark"></i> <?php echo esc_html($forgot_error); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($forgot_success)) : ?>
+                        <div class="form-status-msg success" style="margin-bottom: 20px; display: block;">
+                            <i class="fa-solid fa-circle-check"></i> <?php echo esc_html($forgot_success); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <form action="" method="post">
+                        <?php wp_nonce_field('comida_rapida_forgot_action', 'forgot_nonce'); ?>
+
+                        <div class="form-group" style="margin-bottom: 20px;">
+                            <label for="forgot_input" class="form-label">Usuario o Correo Electrónico *</label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-envelope"></i>
+                                </span>
+                                <input type="text" id="forgot_input" name="forgot_input" class="form-input" placeholder="Ej. juanperez o juan@correo.com" required style="padding-left: 45px;" value="<?php echo isset($_POST['forgot_input']) ? esc_attr($_POST['forgot_input']) : ''; ?>">
+                            </div>
+                        </div>
+
+                        <button type="submit" name="forgot_submit" class="btn btn-primary form-submit-btn" style="border-radius: 50px; margin-bottom: 15px;">
+                            Enviar Enlace <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                        
+                        <div style="text-align: center;">
+                            <a href="#" id="back-to-login-link" style="color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 600; transition: var(--transition-fast);">
+                                <i class="fa-solid fa-arrow-left" style="margin-right: 4px;"></i> Volver al inicio de sesión
+                            </a>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- CONTENEDOR FORMULARIO DE RESTABLECIMIENTO DE CONTRASEÑA -->
+                <div class="reset-form-container" id="reset-form-container" style="display: <?php echo $valid_reset_token ? 'block' : 'none'; ?>;">
+                    <h3 style="font-size: 1.35rem; font-weight: 700; color: var(--text-primary); margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-lock-open" style="color: var(--color-amber);"></i> Elige tu nueva contraseña
+                    </h3>
+
+                    <?php if (!empty($reset_error)) : ?>
+                        <div class="form-status-msg error" style="margin-bottom: 20px; display: block;">
+                            <i class="fa-solid fa-circle-xmark"></i> <?php echo esc_html($reset_error); ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <form action="" method="post">
+                        <?php wp_nonce_field('comida_rapida_reset_action', 'reset_nonce'); ?>
+
+                        <div class="form-group">
+                            <label for="new_password" class="form-label">Nueva Contraseña *</label>
+                            <div style="position: relative; margin-bottom: 8px;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-key"></i>
+                                </span>
+                                <input type="password" id="new_password" name="new_password" class="form-input" placeholder="Mínimo 8 caracteres" required style="padding-left: 45px; padding-right: 45px;">
+                                <span class="toggle-pwd-btn" data-target="new_password" style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted); cursor: pointer;" title="Mostrar contraseña">
+                                    <i class="fa-solid fa-eye-slash"></i>
+                                </span>
+                            </div>
+                            
+                            <!-- Indicador visual de políticas de contraseña -->
+                            <div id="reset-password-policies-box" style="margin-top: 10px; font-size: 0.82rem; background: var(--bg-primary); border: var(--border-main); padding: 12px; border-radius: 8px; display: none;">
+                                <span style="font-weight: 700; color: var(--text-primary); display: block; margin-bottom: 6px;">La contraseña debe incluir:</span>
+                                <ul style="list-style: none; padding-left: 0; margin: 0; display: flex; flex-direction: column; gap: 6px;">
+                                    <li id="reset-policy-len" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="reset-policy-len-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Al menos 8 caracteres
+                                    </li>
+                                    <li id="reset-policy-upper" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="reset-policy-upper-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Una letra mayúscula (A-Z)
+                                    </li>
+                                    <li id="reset-policy-lower" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="reset-policy-lower-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Una letra minúscula (a-z)
+                                    </li>
+                                    <li id="reset-policy-num" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="reset-policy-num-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Un número (0-9)
+                                    </li>
+                                    <li id="reset-policy-spec" style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); transition: color 0.2s ease;">
+                                        <span id="reset-policy-spec-icon-container" style="width: 16px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i></span> Un carácter especial (ej. !@#$%^&*)
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 24px;">
+                            <label for="new_password_confirm" class="form-label">Confirmar Nueva Contraseña *</label>
+                            <div style="position: relative;">
+                                <span style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+                                    <i class="fa-solid fa-shield-check"></i>
+                                </span>
+                                <input type="password" id="new_password_confirm" name="new_password_confirm" class="form-input" placeholder="Repite tu nueva contraseña" required style="padding-left: 45px; padding-right: 45px;">
+                                <span class="toggle-pwd-btn" data-target="new_password_confirm" style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-muted); cursor: pointer;" title="Mostrar contraseña">
+                                    <i class="fa-solid fa-eye-slash"></i>
+                                </span>
+                            </div>
+                        </div>
+
+                        <button type="submit" name="reset_submit" class="btn btn-primary form-submit-btn" style="border-radius: 50px;">
+                            Restablecer Contraseña <i class="fa-solid fa-check"></i>
+                        </button>
+                    </form>
+                </div>
+
             <?php endif; ?>
         </div>
     </div>
@@ -664,6 +944,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const tabRegisterBtn = document.getElementById('tab-register-btn');
     const loginFormContainer = document.getElementById('login-form-container');
     const registerFormContainer = document.getElementById('register-form-container');
+    const forgotFormContainer = document.getElementById('forgot-form-container');
+    const loginTabs = document.getElementById('login-tabs');
+    const forgotPasswordLink = document.getElementById('forgot-password-link');
+    const backToLoginLink = document.getElementById('back-to-login-link');
     
     if (tabLoginBtn && tabRegisterBtn && loginFormContainer && registerFormContainer) {
         tabLoginBtn.addEventListener('click', function() {
@@ -671,6 +955,7 @@ document.addEventListener('DOMContentLoaded', function() {
             tabRegisterBtn.classList.remove('active');
             loginFormContainer.style.display = 'block';
             registerFormContainer.style.display = 'none';
+            if (forgotFormContainer) forgotFormContainer.style.display = 'none';
         });
 
         tabRegisterBtn.addEventListener('click', function() {
@@ -678,6 +963,31 @@ document.addEventListener('DOMContentLoaded', function() {
             tabLoginBtn.classList.remove('active');
             registerFormContainer.style.display = 'block';
             loginFormContainer.style.display = 'none';
+            if (forgotFormContainer) forgotFormContainer.style.display = 'none';
+        });
+    }
+
+    if (forgotPasswordLink && loginFormContainer && forgotFormContainer && loginTabs) {
+        forgotPasswordLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            loginFormContainer.style.display = 'none';
+            registerFormContainer.style.display = 'none';
+            forgotFormContainer.style.display = 'block';
+            loginTabs.style.display = 'none';
+        });
+    }
+
+    if (backToLoginLink && loginFormContainer && forgotFormContainer && loginTabs) {
+        backToLoginLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            forgotFormContainer.style.display = 'none';
+            registerFormContainer.style.display = 'none';
+            loginFormContainer.style.display = 'block';
+            loginTabs.style.display = 'flex';
+            if (tabLoginBtn && tabRegisterBtn) {
+                tabLoginBtn.classList.add('active');
+                tabRegisterBtn.classList.remove('active');
+            }
         });
     }
 
@@ -704,6 +1014,18 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // Helper para actualizar UI de políticas de seguridad
+    function updatePolicyUI(element, iconContainer, isMet) {
+        if (!element || !iconContainer) return;
+        if (isMet) {
+            element.style.color = 'var(--color-green)';
+            iconContainer.innerHTML = '<i class="fa-solid fa-check" style="font-size: 0.8rem; color: var(--color-green);"></i>';
+        } else {
+            element.style.color = 'var(--text-muted)';
+            iconContainer.innerHTML = '<i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i>';
+        }
+    }
+
     // Validación en tiempo real de la contraseña de registro
     const regPassword = document.getElementById('reg_password');
     const policiesBox = document.getElementById('password-policies-box');
@@ -727,36 +1049,43 @@ document.addEventListener('DOMContentLoaded', function() {
         regPassword.addEventListener('input', function() {
             const val = regPassword.value;
             
-            // Requisito 1: Longitud >= 8
-            const hasLen = val.length >= 8;
-            updatePolicyUI(policyLen, policyLenIcon, hasLen);
-            
-            // Requisito 2: Mayúscula
-            const hasUpper = /[A-Z]/.test(val);
-            updatePolicyUI(policyUpper, policyUpperIcon, hasUpper);
-            
-            // Requisito 3: Minúscula
-            const hasLower = /[a-z]/.test(val);
-            updatePolicyUI(policyLower, policyLowerIcon, hasLower);
-            
-            // Requisito 4: Número
-            const hasNum = /[0-9]/.test(val);
-            updatePolicyUI(policyNum, policyNumIcon, hasNum);
-            
-            // Requisito 5: Carácter especial
-            const hasSpec = /[^A-Za-z0-9]/.test(val);
-            updatePolicyUI(policySpec, policySpecIcon, hasSpec);
+            updatePolicyUI(policyLen, policyLenIcon, val.length >= 8);
+            updatePolicyUI(policyUpper, policyUpperIcon, /[A-Z]/.test(val));
+            updatePolicyUI(policyLower, policyLowerIcon, /[a-z]/.test(val));
+            updatePolicyUI(policyNum, policyNumIcon, /[0-9]/.test(val));
+            updatePolicyUI(policySpec, policySpecIcon, /[^A-Za-z0-9]/.test(val));
+        });
+    }
+
+    // Validación en tiempo real de la contraseña de restablecimiento
+    const newPassword = document.getElementById('new_password');
+    const resetPoliciesBox = document.getElementById('reset-password-policies-box');
+    
+    if (newPassword && resetPoliciesBox) {
+        const policyLen = document.getElementById('reset-policy-len');
+        const policyLenIcon = document.getElementById('reset-policy-len-icon-container');
+        const policyUpper = document.getElementById('reset-policy-upper');
+        const policyUpperIcon = document.getElementById('reset-policy-upper-icon-container');
+        const policyLower = document.getElementById('reset-policy-lower');
+        const policyLowerIcon = document.getElementById('reset-policy-lower-icon-container');
+        const policyNum = document.getElementById('reset-policy-num');
+        const policyNumIcon = document.getElementById('reset-policy-num-icon-container');
+        const policySpec = document.getElementById('reset-policy-spec');
+        const policySpecIcon = document.getElementById('reset-policy-spec-icon-container');
+        
+        newPassword.addEventListener('focus', function() {
+            resetPoliciesBox.style.display = 'block';
         });
         
-        function updatePolicyUI(element, iconContainer, isMet) {
-            if (isMet) {
-                element.style.color = 'var(--color-green)';
-                iconContainer.innerHTML = '<i class="fa-solid fa-check" style="font-size: 0.8rem; color: var(--color-green);"></i>';
-            } else {
-                element.style.color = 'var(--text-muted)';
-                iconContainer.innerHTML = '<i class="fa-solid fa-circle" style="font-size: 0.5rem; opacity: 0.5;"></i>';
-            }
-        }
+        newPassword.addEventListener('input', function() {
+            const val = newPassword.value;
+            
+            updatePolicyUI(policyLen, policyLenIcon, val.length >= 8);
+            updatePolicyUI(policyUpper, policyUpperIcon, /[A-Z]/.test(val));
+            updatePolicyUI(policyLower, policyLowerIcon, /[a-z]/.test(val));
+            updatePolicyUI(policyNum, policyNumIcon, /[0-9]/.test(val));
+            updatePolicyUI(policySpec, policySpecIcon, /[^A-Za-z0-9]/.test(val));
+        });
     }
 });
 </script>

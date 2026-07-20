@@ -3,6 +3,7 @@
  * Funciones y definiciones del tema Comida Rápida
  */
 
+
 // Iniciar sesión de PHP para el CAPTCHA matemático y verificar inactividad
 add_action('init', 'comida_rapida_session_start', 1);
 function comida_rapida_session_start() {
@@ -442,6 +443,8 @@ function comida_rapida_crear_tabla_clientes() {
         role varchar(20) DEFAULT 'cliente' NOT NULL,
         failed_attempts int(11) DEFAULT 0 NOT NULL,
         lockout_until datetime DEFAULT NULL NULL,
+        reset_token varchar(100) DEFAULT NULL NULL,
+        reset_token_expiry datetime DEFAULT NULL NULL,
         created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
         PRIMARY KEY  (id),
         UNIQUE KEY username (username),
@@ -1492,4 +1495,18 @@ function comida_rapida_auto_apply_coupon_from_url() {
         WC()->cart->add_discount($coupon_code);
     }
 }
+
+/**
+ * 4. Forzar que las URLs del carrito y checkout de WooCommerce apunten a las vistas personalizadas del tema
+ */
+add_filter('woocommerce_get_cart_url', 'comida_rapida_custom_cart_url', 99);
+function comida_rapida_custom_cart_url($url) {
+    return add_query_arg('view', 'carrito', home_url('/'));
+}
+
+add_filter('woocommerce_get_checkout_url', 'comida_rapida_custom_checkout_url', 99);
+function comida_rapida_custom_checkout_url($url) {
+    return add_query_arg('view', 'compra', home_url('/'));
+}
+
 
