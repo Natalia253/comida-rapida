@@ -4,13 +4,44 @@
  */
 
 
-// Vaciar el carrito tras completar un pedido en WooCommerce
-add_action('woocommerce_thankyou', 'comida_rapida_vaciar_carrito_tras_pago', 5);
-function comida_rapida_vaciar_carrito_tras_pago($order_id) {
-    if (!$order_id) return;
+// ─── FLUJO DE COMPRA ──────────────────────────────────────────────────────────
+
+// 1. Vaciar carrito en cuanto se procesa el pedido (antes del redirect)
+add_action('woocommerce_checkout_order_processed', 'comida_rapida_vaciar_carrito_al_pagar', 10, 1);
+function comida_rapida_vaciar_carrito_al_pagar($order_id) {
     if (WC()->cart && !WC()->cart->is_empty()) {
         WC()->cart->empty_cart();
     }
+}
+
+// 2. Redirigir la página de confirmación a la URL del tema (?view=compra&confirmado=1)
+add_filter('woocommerce_get_checkout_order_received_url', 'comida_rapida_url_confirmacion', 10, 2);
+function comida_rapida_url_confirmacion($url, $order) {
+    return add_query_arg(array(
+        'view'       => 'compra',
+        'confirmado' => '1',
+        'order_id'   => $order->get_id(),
+        'order_key'  => $order->get_order_key(),
+    ), home_url('/'));
+}
+
+// 3. Deshabilitar emails de WooCommerce (solo queremos el correo de recuperar contraseña en Mailpit)
+add_filter('woocommerce_email_classes', 'comida_rapida_deshabilitar_emails_wc');
+function comida_rapida_deshabilitar_emails_wc($email_classes) {
+    // Eliminar todos los emails automáticos de WooCommerce
+    unset(
+        $email_classes['WC_Email_New_Order'],
+        $email_classes['WC_Email_Cancelled_Order'],
+        $email_classes['WC_Email_Failed_Order'],
+        $email_classes['WC_Email_Customer_Processing_Order'],
+        $email_classes['WC_Email_Customer_Completed_Order'],
+        $email_classes['WC_Email_Customer_Refunded_Order'],
+        $email_classes['WC_Email_Customer_Invoice'],
+        $email_classes['WC_Email_Customer_Note'],
+        $email_classes['WC_Email_Customer_Reset_Password'],
+        $email_classes['WC_Email_Customer_New_Account']
+    );
+    return $email_classes;
 }
 
 // Iniciar sesión de PHP para el CAPTCHA matemático y verificar inactividad
