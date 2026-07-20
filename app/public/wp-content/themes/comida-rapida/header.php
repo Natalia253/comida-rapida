@@ -17,7 +17,7 @@
         <!-- Logo -->
         <a href="<?php echo esc_url(home_url('/')); ?>" class="logo">
             <i class="fa-solid fa-burger" style="color: var(--color-amber);"></i>
-            Comida<span>Rápida</span>
+            La <span>Barra</span>
         </a>
         
         <!-- Navigation Menu -->

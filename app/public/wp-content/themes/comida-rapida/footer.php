@@ -3,7 +3,7 @@
         <div class="footer-grid">
             <!-- Brand Column -->
             <div class="footer-brand">
-                <h3><i class="fa-solid fa-burger" style="color: var(--color-amber);"></i> Comida<span style="color: var(--color-amber);">Rápida</span></h3>
+                <h3><i class="fa-solid fa-burger" style="color: var(--color-amber);"></i> La <span style="color: var(--color-amber);">Barra</span></h3>
                 <p>Las mejores hamburguesas, pizzas y combos de la ciudad elaborados con ingredientes 100% frescos y de calidad premium. ¡Haz tu pedido ahora!</p>
                 <div class="social-links">
                     <a href="#" class="social-link" aria-label="Facebook"><i class="fa-brands fa-facebook-f"></i></a>
@@ -40,7 +40,7 @@
         <!-- Footer Bottom -->
         <div class="footer-bottom">
             <div class="footer-copy">
-                &copy; <?php echo date('Y'); ?> Comida Rápida. Proyecto 2 - Comercio Electrónico.
+                &copy; <?php echo date('Y'); ?> La Barra. Proyecto 2 - Comercio Electrónico.
             </div>
             <div class="footer-authors">
                 Desarrollado por: <span style="color: var(--color-amber);">Grupo de 2 Estudiantes (4° GDS)</span>

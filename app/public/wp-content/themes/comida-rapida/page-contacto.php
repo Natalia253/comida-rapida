@@ -62,7 +62,7 @@
                     
                     <!-- Caja de Popup del Local -->
                     <div class="map-card-popup">
-                        <h4 class="map-popup-title"><i class="fa-solid fa-utensils"></i> Comida Rápida</h4>
+                        <h4 class="map-popup-title"><i class="fa-solid fa-utensils"></i> La Barra</h4>
                         <p class="map-popup-desc">Vía España. Local N° 4.<br>¡Estamos frente a la estación de metro!</p>
                     </div>
                 </div>

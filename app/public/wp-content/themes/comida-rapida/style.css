@@ -1,5 +1,5 @@
 /*
-Theme Name: Comida Rápida
+Theme Name: La Barra
 Theme URI: http://localhost/wordpress/
 Author: Estudiantes de Comercio Electrónico
 Description: Tema premium en modo claro pulcro (estilo Food App) para venta de comida rápida con carrito, combos, promociones y pedidos con seguridad.
@@ -2833,3 +2833,43 @@ body.woocommerce-order-received .wc-checkout-wrapper {
 body.woocommerce-order-received .woocommerce-order {
     margin: 0 auto !important;
 }
+
+/* --- WOOCOMMERCE AJAX ADDED TO CART BUTTON --- */
+a.added_to_cart.wc-forward {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: white !important;
+    background-color: var(--color-amber) !important;
+    border: 1.5px solid var(--color-amber) !important;
+    padding: 6px 14px;
+    border-radius: 6px;
+    box-shadow: var(--shadow-md);
+    transition: var(--transition-smooth);
+    animation: fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+a.added_to_cart.wc-forward:hover {
+    background-color: var(--accent-color-hover) !important;
+    border-color: var(--accent-color-hover) !important;
+    color: white !important;
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg);
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
