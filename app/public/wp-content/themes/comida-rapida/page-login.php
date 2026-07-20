@@ -575,7 +575,13 @@ if ($valid_reset_token) {
                                 ?>
                                     <tr style="border-bottom: 1px solid var(--border-main);">
                                         <td style="padding: 15px 8px; font-weight: 700; color: var(--text-primary);">#<?php echo $order->get_id(); ?></td>
-                                        <td style="padding: 15px 8px; color: var(--text-secondary);"><?php echo esc_html(wc_format_datetime($order->get_date_created(), 'd/m/Y')); ?></td>
+                                        <td style="padding: 15px 8px; color: var(--text-secondary);"><?php
+                                            $date_obj = $order->get_date_created();
+                                            if ($date_obj) {
+                                                $date_obj->setTimezone(new DateTimeZone(wp_timezone_string()));
+                                                echo esc_html($date_obj->format('d/m/Y'));
+                                            }
+                                        ?></td>
                                         <td style="padding: 15px 8px; color: var(--text-muted); font-size: 0.82rem;" title="<?php echo esc_attr(implode(', ', $items_summary)); ?>"><?php echo esc_html($items_str); ?></td>
                                         <td style="padding: 15px 8px; font-weight: 700; color: var(--text-primary);">$<?php echo number_format($order->get_total(), 2); ?></td>
                                         <td style="padding: 15px 8px; text-align: right;">

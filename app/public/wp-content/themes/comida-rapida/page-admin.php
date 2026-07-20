@@ -500,7 +500,12 @@ $db_logs = $wpdb->get_results("SELECT * FROM $table_logs ORDER BY fecha DESC LIM
                                     $estado = 'cancelado';
                                 }
                                 
-                                $fecha = $order->get_date_created() ? $order->get_date_created()->date('d/m/Y H:i') : '';
+                                $fecha = '';
+                                if ($order->get_date_created()) {
+                                    $date_obj = $order->get_date_created();
+                                    $date_obj->setTimezone(new DateTimeZone(wp_timezone_string()));
+                                    $fecha = $date_obj->format('d/m/Y H:i');
+                                }
                                 
                                 // Nombre completo del cliente
                                 $title = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();

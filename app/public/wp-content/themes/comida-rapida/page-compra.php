@@ -16,8 +16,8 @@ if (!comida_rapida_is_logged_in()) {
         <div class="section-header">
             <?php if (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url('order-received')) : ?>
                 <span class="section-subtitle" style="background: rgba(16, 185, 129, 0.08); color: var(--color-green);">¡Éxito!</span>
-                <h2 class="section-title">Pedido Recibido</h2>
-                <p class="section-desc">Tu orden ha sido registrada correctamente. ¡Gracias por tu compra!</p>
+                <h2 class="section-title">Pedido Confirmado</h2>
+                <p class="section-desc">Tu orden ha sido registrada correctamente. ¡Gracias por tu compra en La Barra!</p>
             <?php else : ?>
                 <span class="section-subtitle">Realiza tu Compra</span>
                 <h2 class="section-title">Finalizar Pedido</h2>
@@ -28,7 +28,13 @@ if (!comida_rapida_is_logged_in()) {
         <div class="wc-checkout-wrapper" style="background: transparent; border: none; padding: 0; box-shadow: none;">
             <?php
             if (class_exists('WooCommerce')) {
-                echo do_shortcode('[woocommerce_checkout]');
+                if (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url('order-received')) {
+                    // Mostrar confirmación del pedido
+                    echo do_shortcode('[woocommerce_order_review]');
+                    the_content();
+                } else {
+                    echo do_shortcode('[woocommerce_checkout]');
+                }
             } else {
                 echo '<p>El plugin WooCommerce no está activo.</p>';
             }

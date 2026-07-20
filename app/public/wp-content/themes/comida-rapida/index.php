@@ -12,7 +12,7 @@ $view = isset($_GET['view']) ? sanitize_text_field($_GET['view']) : '';
 if (class_exists('WooCommerce')) {
     if (is_cart()) {
         $view = 'carrito';
-    } elseif (is_checkout()) {
+    } elseif (is_checkout() || is_wc_endpoint_url('order-received')) {
         $view = 'compra';
     }
 }

@@ -4,6 +4,15 @@
  */
 
 
+// Vaciar el carrito tras completar un pedido en WooCommerce
+add_action('woocommerce_thankyou', 'comida_rapida_vaciar_carrito_tras_pago', 5);
+function comida_rapida_vaciar_carrito_tras_pago($order_id) {
+    if (!$order_id) return;
+    if (WC()->cart && !WC()->cart->is_empty()) {
+        WC()->cart->empty_cart();
+    }
+}
+
 // Iniciar sesión de PHP para el CAPTCHA matemático y verificar inactividad
 add_action('init', 'comida_rapida_session_start', 1);
 function comida_rapida_session_start() {
